@@ -96,27 +96,63 @@ class ScreenWidget(QLabel):
         self.setMinimumSize(200, 300)
 
     def mousePressEvent(self, event) -> None:
+        if self.app.picking_coord:
+            if event.button() == Qt.LeftButton:
+                self.app.pick_coord(event.position().toPoint())
+            elif event.button() == Qt.RightButton:
+                self.app.cancel_pick_coord()
+            return
         if event.button() == Qt.LeftButton:
             self.app.begin_selection(event.position().toPoint())
         elif event.button() == Qt.RightButton:
             self.app.cancel_selection()
 
     def mouseMoveEvent(self, event) -> None:
-        self.app.update_selection(event.position().toPoint())
+        pos = event.position().toPoint()
+        self.app.cursor_pos = pos
+        self.update()
+        if self.app.picking_coord:
+            return
+        self.app.update_selection(pos)
+
+    def leaveEvent(self, event) -> None:
+        self.app.cursor_pos = None
+        self.update()
+        super().leaveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:
+        if self.app.picking_coord:
+            return
         if event.button() == Qt.LeftButton:
             self.app.finish_selection(event.position().toPoint())
 
     def paintEvent(self, event) -> None:
         super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
         if self.app.dragging and self.app.drag_start and self.app.drag_end:
             rect = QRect(self.app.drag_start, self.app.drag_end).normalized()
-            painter = QPainter(self)
             painter.setPen(QPen(SELECT_COLOR, 2))
             painter.setBrush(Qt.transparent)
             painter.drawRect(rect)
-            painter.end()
+        pos = self.app.cursor_pos
+        if pos is not None and self.app.latest_bgr is not None:
+            x, y = self.app._to_source(pos)
+            text = f"{x}, {y}"
+            fm = painter.fontMetrics()
+            tw, th = fm.horizontalAdvance(text), fm.height()
+            bx, by = pos.x() + 14, pos.y() + 14
+            if bx + tw + 12 > self.width():
+                bx = pos.x() - tw - 20
+            if by + th + 10 > self.height():
+                by = pos.y() - th - 16
+            bx, by = max(0, bx), max(0, by)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(20, 20, 20, 210))
+            painter.drawRoundedRect(bx, by, tw + 12, th + 8, 4, 4)
+            painter.setPen(QColor(240, 240, 240))
+            painter.drawText(bx + 6, by + 4 + fm.ascent(), text)
+        painter.end()
 
 
 class IconButton(QWidget):
@@ -245,6 +281,13 @@ class IconButton(QWidget):
             p.drawLine(int(cx + 9), int(cy - 3), int(cx + 9), int(cy + 10))
             p.drawLine(int(cx - 9), int(cy + 10), int(cx + 9), int(cy + 10))
             p.drawRect(int(cx - 3), int(cy + 2), 6, 8)
+        elif k == "coord":
+            p.drawEllipse(QPointF(cx, cy), 9, 9)
+            p.drawEllipse(QPointF(cx, cy), 2, 2)
+            p.drawLine(int(cx - 13), int(cy), int(cx - 4), int(cy))
+            p.drawLine(int(cx + 4), int(cy), int(cx + 13), int(cy))
+            p.drawLine(int(cx), int(cy - 13), int(cx), int(cy - 4))
+            p.drawLine(int(cx), int(cy + 4), int(cx), int(cy + 13))
         elif k == "settings":
             teeth = 8
             step = 2 * math.pi / teeth
@@ -273,6 +316,7 @@ class FloatingToolbar(QFrame):
         self._drag_pos: QPoint | None = None
         self.drag_state_changed = None
         self.settings_clicked = None
+        self.coord_clicked = None
         self._horizontal = False
         self.setStyleSheet(
             "FloatingToolbar { background: #1e1e1e; border: 1px solid #3a3a3a; }"
@@ -288,17 +332,23 @@ class FloatingToolbar(QFrame):
         self._inner_layout = QBoxLayout(QBoxLayout.TopToBottom, self._inner)
         self._inner_layout.setContentsMargins(0, 4, 0, 4)
         self._inner_layout.setSpacing(0)
-        for kind in ("refresh", "back", "home", "settings"):
+        for kind in ("refresh", "back", "home", "coord", "settings"):
             btn = IconButton(kind, self._inner)
             btn.setObjectName("toolbarIcon")
             if kind == "settings":
                 btn.clicked = self._open_settings
+            elif kind == "coord":
+                btn.clicked = self._pick_coord
             self._inner_layout.addWidget(btn)
         self._apply_orientation()
 
     def _open_settings(self) -> None:
         if self.settings_clicked:
             self.settings_clicked()
+
+    def _pick_coord(self) -> None:
+        if self.coord_clicked:
+            self.coord_clicked()
 
     def is_horizontal(self) -> bool:
         return self._horizontal
@@ -312,10 +362,10 @@ class FloatingToolbar(QFrame):
     def _apply_orientation(self) -> None:
         if self._horizontal:
             self._inner_layout.setDirection(QBoxLayout.LeftToRight)
-            self.setFixedSize(192, 60)
+            self.setFixedSize(232, 60)
         else:
             self._inner_layout.setDirection(QBoxLayout.TopToBottom)
-            self.setFixedSize(56, 200)
+            self.setFixedSize(56, 244)
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.LeftButton:
@@ -384,6 +434,8 @@ class MainWindow(QMainWindow):
         self._toolbar_dragging = False
         self._window_moving = False
         self._screen_wh = tuple(screen_wh) if screen_wh else None
+        self.picking_coord = False
+        self.cursor_pos: QPoint | None = None
 
         self.setWindowTitle("AirPicker")
         self.screen = ScreenWidget(self)
@@ -397,6 +449,7 @@ class MainWindow(QMainWindow):
         self.toolbar = FloatingToolbar()
         self.toolbar.drag_state_changed = self.set_toolbar_dragging
         self.toolbar.settings_clicked = self.open_toolbar_settings
+        self.toolbar.coord_clicked = self.start_pick_coord
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.on_frame)
@@ -562,9 +615,10 @@ class MainWindow(QMainWindow):
 
     def _to_source(self, pos: QPoint) -> tuple[int, int]:
         pm = self.screen.pixmap()
-        if pm is None or self.frozen_bgr is None:
+        frame = self.frozen_bgr if self.frozen_bgr is not None else self.latest_bgr
+        if pm is None or frame is None:
             return 0, 0
-        h, w = self.frozen_bgr.shape[:2]
+        h, w = frame.shape[:2]
         dpr = pm.devicePixelRatioF() or 1.0
         iw, ih = pm.width() / dpr, pm.height() / dpr
         ox = (self.screen.width() - iw) / 2
@@ -572,6 +626,34 @@ class MainWindow(QMainWindow):
         sx = int(round((pos.x() - ox) / iw * w))
         sy = int(round((pos.y() - oy) / ih * h))
         return max(0, min(w - 1, sx)), max(0, min(h - 1, sy))
+
+    # -------- 坐标获取 --------
+    def start_pick_coord(self) -> None:
+        if self.latest_bgr is None:
+            print("[提示] 画面尚未就绪，暂时无法取点")
+            return
+        self.picking_coord = True
+        self.screen.setCursor(Qt.CrossCursor)
+        self.setWindowTitle("AirPicker · 取点模式：单击画面获取坐标，右键取消")
+
+    def cancel_pick_coord(self) -> None:
+        self.picking_coord = False
+        self.screen.unsetCursor()
+        self._last_title = ""
+        self._update_title()
+
+    def pick_coord(self, pos: QPoint) -> None:
+        x, y = self._to_source(pos)
+        text = f"{x}, {y}"
+        print(f"[坐标] {text}")
+        try:
+            if pyperclip is None:
+                raise RuntimeError("pyperclip 未安装")
+            pyperclip.copy(text)
+            print("坐标已复制到剪贴板")
+        except Exception as exc:
+            print(f"剪贴板不可用（{exc}），请手动复制：{text}")
+        self.cancel_pick_coord()
 
     def save_template(self) -> None:
         if self.frozen_bgr is None or self.drag_start is None or self.drag_end is None:
