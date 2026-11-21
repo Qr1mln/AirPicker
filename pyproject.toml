@@ -1,0 +1,11 @@
+[project]
+name = "airpicker"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "airtest>=1.3",
+    "opencv-python>=4.8",
+    "pillow>=10",
+    "pyperclip>=1.9",
+    "pyside6>=6.12.0",
+]
