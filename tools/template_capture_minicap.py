@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import math
 import os
 import time
 from datetime import datetime
@@ -14,13 +15,27 @@ from pathlib import Path
 import cv2
 import numpy as np
 from PIL import Image
-from PySide6.QtCore import QPoint, QRect, Qt, QTimer
-from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
+from PySide6.QtCore import (
+    QEasingCurve,
+    QPoint,
+    QPointF,
+    QPropertyAnimation,
+    QRect,
+    Qt,
+    QTimer,
+    Property as QtProperty,
+)
+from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QApplication,
+    QBoxLayout,
+    QComboBox,
+    QDialog,
     QFrame,
+    QHBoxLayout,
     QLabel,
     QMainWindow,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -105,53 +120,148 @@ class ScreenWidget(QLabel):
 
 
 class IconButton(QWidget):
-    """自绘线性图标按钮（仅展示，暂无点击逻辑）。"""
+    """自绘白色线性图标按钮：悬停渐亮、按下缩放，刷新按钮点击后转圈。"""
 
     def __init__(self, kind: str, parent: QWidget):
         super().__init__(parent)
         self.kind = kind
+        self.clicked = None
         self.setFixedSize(40, 44)
         self.setCursor(Qt.ArrowCursor)
+        self.setAttribute(Qt.WA_Hover, True)
+        self._hover = 0.0
+        self._press = 0.0
+        self._rotation = 0.0
+        self._press_pos: QPoint | None = None
+        self._anims: dict[str, QPropertyAnimation] = {}
+
+    def _get_hover(self) -> float:
+        return self._hover
+
+    def _set_hover(self, value: float) -> None:
+        self._hover = value
+        self.update()
+
+    def _get_press(self) -> float:
+        return self._press
+
+    def _set_press(self, value: float) -> None:
+        self._press = value
+        self.update()
+
+    def _get_rotation(self) -> float:
+        return self._rotation
+
+    def _set_rotation(self, value: float) -> None:
+        self._rotation = value
+        self.update()
+
+    hover = QtProperty(float, _get_hover, _set_hover)
+    press = QtProperty(float, _get_press, _set_press)
+    rotation = QtProperty(float, _get_rotation, _set_rotation)
+
+    def _animate(self, name: str, end: float, duration: int, curve=QEasingCurve.OutQuad) -> None:
+        anim = QPropertyAnimation(self, name.encode(), self)
+        anim.setDuration(duration)
+        anim.setStartValue(getattr(self, "_" + name))
+        anim.setEndValue(end)
+        anim.setEasingCurve(curve)
+        anim.start()
+        self._anims[name] = anim
+
+    def enterEvent(self, event) -> None:
+        self._animate("hover", 1.0, 140)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self._animate("hover", 0.0, 180)
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton:
+            self._press_pos = event.position().toPoint()
+            self._animate("press", 1.0, 90)
+        event.ignore()  # 继续交给悬浮工具栏处理拖拽
+
+    def mouseReleaseEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton:
+            self._animate("press", 0.0, 160)
+            if self._press_pos is not None:
+                moved = (event.position().toPoint() - self._press_pos).manhattanLength()
+                if moved < 6:
+                    if self.kind == "refresh":
+                        self._animate(
+                            "rotation", self._rotation + 360.0, 700,
+                            QEasingCurve.InOutQuad,
+                        )
+                    if self.clicked:
+                        self.clicked()
+            self._press_pos = None
+        event.ignore()
 
     def paintEvent(self, event) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        pen = QPen(QColor(95, 95, 95), 2)
+        cx, cy = self.width() / 2, self.height() / 2
+
+        if self._hover > 0.01:
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(255, 255, 255, int(10 + 30 * self._hover)))
+            p.drawRoundedRect(self.rect().adjusted(2, 2, -2, -2), 6, 6)
+
+        p.save()
+        scale = 1.0 - 0.08 * self._press
+        p.translate(cx, cy)
+        p.scale(scale, scale)
+        if self.kind == "refresh" and self._rotation:
+            p.rotate(self._rotation)
+        p.translate(-cx, -cy)
+
+        shade = int(235 + 20 * max(self._hover, self._press))
+        pen = QPen(QColor(shade, shade, shade), 2)
         pen.setCapStyle(Qt.RoundCap)
         p.setPen(pen)
         p.setBrush(Qt.NoBrush)
-        cx, cy = self.width() / 2, self.height() / 2
         k = self.kind
 
-        if k == "phone":
-            p.drawRoundedRect(int(cx - 9), int(cy - 13), 18, 26, 3, 3)
-            p.drawLine(int(cx - 6), int(cy - 9), int(cx + 6), int(cy - 9))
-            p.drawEllipse(int(cx - 2), int(cy + 9), 4, 4)
-        elif k == "person":
-            p.drawEllipse(int(cx - 6), int(cy - 12), 12, 12)
-            p.drawArc(int(cx - 13), int(cy - 2), 26, 24, 180 * 16, 180 * 16)
-        elif k == "tools":
-            p.setWidth(3)
-            p.drawLine(int(cx - 10), int(cy + 10), int(cx + 8), int(cy - 8))
-            p.drawArc(int(cx), int(cy - 13), 14, 14, 270 * 16, 180 * 16)
-        elif k == "headset":
-            p.drawArc(int(cx - 12), int(cy - 13), 24, 24, 180 * 16, 180 * 16)
-            p.drawRoundedRect(int(cx - 14), int(cy - 2), 6, 14, 2, 2)
-            p.drawRoundedRect(int(cx + 8), int(cy - 2), 6, 14, 2, 2)
-        elif k == "cart":
-            p.drawLine(int(cx - 13), int(cy - 10), int(cx - 9), int(cy - 10))
-            p.drawLine(int(cx - 9), int(cy - 10), int(cx - 5), int(cy + 4))
-            p.drawLine(int(cx - 5), int(cy + 4), int(cx + 11), int(cy + 4))
-            p.drawLine(int(cx + 11), int(cy + 4), int(cx + 13), int(cy - 5))
-            p.drawLine(int(cx + 13), int(cy - 5), int(cx - 3), int(cy - 5))
-            p.setBrush(QColor(95, 95, 95))
-            p.drawEllipse(int(cx - 6), int(cy + 5), 4, 4)
-            p.drawEllipse(int(cx + 7), int(cy + 5), 4, 4)
-        elif k == "upload":
-            p.drawLine(int(cx), int(cy + 10), int(cx), int(cy - 10))
-            p.drawLine(int(cx - 6), int(cy - 4), int(cx), int(cy - 10))
-            p.drawLine(int(cx), int(cy - 10), int(cx + 6), int(cy - 4))
-            p.drawLine(int(cx - 9), int(cy + 12), int(cx + 9), int(cy + 12))
+        if k == "refresh":
+            r = 10.0
+            box = (int(cx - r), int(cy - r), int(2 * r), int(2 * r))
+            p.drawArc(*box, -60 * 16, 255 * 16)
+            p.drawArc(*box, 120 * 16, 255 * 16)
+            for angle in (-60, 120):
+                a = math.radians(angle)
+                tip = QPointF(cx + r * math.cos(a), cy + r * math.sin(a))
+                p.drawLine(tip, QPointF(tip.x() - 4, tip.y() - 1))
+                p.drawLine(tip, QPointF(tip.x() + 1, tip.y() - 4))
+        elif k == "back":
+            p.drawLine(int(cx - 10), int(cy), int(cx + 10), int(cy))
+            p.drawLine(int(cx - 10), int(cy), int(cx - 3), int(cy - 7))
+            p.drawLine(int(cx - 10), int(cy), int(cx - 3), int(cy + 7))
+        elif k == "home":
+            p.drawLine(int(cx - 11), int(cy - 1), int(cx), int(cy - 11))
+            p.drawLine(int(cx), int(cy - 11), int(cx + 11), int(cy - 1))
+            p.drawLine(int(cx - 9), int(cy - 3), int(cx - 9), int(cy + 10))
+            p.drawLine(int(cx + 9), int(cy - 3), int(cx + 9), int(cy + 10))
+            p.drawLine(int(cx - 9), int(cy + 10), int(cx + 9), int(cy + 10))
+            p.drawRect(int(cx - 3), int(cy + 2), 6, 8)
+        elif k == "settings":
+            teeth = 8
+            step = 2 * math.pi / teeth
+            outer, inner = 11.0, 8.0
+            points = []
+            for i in range(teeth):
+                base = i * step
+                for offset, radius in (
+                    (-0.28, outer), (-0.14, outer),
+                    (-0.07, inner), (0.07, inner),
+                    (0.14, outer), (0.28, outer),
+                ):
+                    a = base + offset * step / 0.5
+                    points.append(QPointF(cx + radius * math.cos(a), cy + radius * math.sin(a)))
+            p.drawPolygon(QPolygonF(points))
+            p.drawEllipse(QPointF(cx, cy), 3.0, 3.0)
+        p.restore()
         p.end()
 
 
@@ -160,25 +270,52 @@ class FloatingToolbar(QFrame):
 
     def __init__(self):
         super().__init__(None, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
-        self.setFixedWidth(56)
         self._drag_pos: QPoint | None = None
         self.drag_state_changed = None
-        self.setStyleSheet("FloatingToolbar { background: #f5f5f5; border: 1px solid #d8d8d8; }")
-
-        inner = QFrame(self)
-        inner.setObjectName("toolbarPanel")
-        inner.setStyleSheet(
-            "#toolbarPanel { background: #ffffff; border: 1px solid #d8d8d8; }"
+        self.settings_clicked = None
+        self._horizontal = False
+        self.setStyleSheet(
+            "FloatingToolbar { background: #1e1e1e; border: 1px solid #3a3a3a; }"
         )
+
+        self._inner = QFrame(self)
+        self._inner.setObjectName("toolbarPanel")
+        self._inner.setStyleSheet("#toolbarPanel { background: transparent; border: none; }")
         outer = QVBoxLayout(self)
         outer.setContentsMargins(8, 8, 8, 8)
-        outer.addWidget(inner)
+        outer.addWidget(self._inner)
 
-        inner_layout = QVBoxLayout(inner)
-        inner_layout.setContentsMargins(0, 4, 0, 4)
-        inner_layout.setSpacing(0)
-        for kind in ("phone", "person", "tools", "headset", "cart", "upload"):
-            inner_layout.addWidget(IconButton(kind, inner))
+        self._inner_layout = QBoxLayout(QBoxLayout.TopToBottom, self._inner)
+        self._inner_layout.setContentsMargins(0, 4, 0, 4)
+        self._inner_layout.setSpacing(0)
+        for kind in ("refresh", "back", "home", "settings"):
+            btn = IconButton(kind, self._inner)
+            btn.setObjectName("toolbarIcon")
+            if kind == "settings":
+                btn.clicked = self._open_settings
+            self._inner_layout.addWidget(btn)
+        self._apply_orientation()
+
+    def _open_settings(self) -> None:
+        if self.settings_clicked:
+            self.settings_clicked()
+
+    def is_horizontal(self) -> bool:
+        return self._horizontal
+
+    def set_horizontal(self, horizontal: bool) -> None:
+        if self._horizontal == horizontal:
+            return
+        self._horizontal = horizontal
+        self._apply_orientation()
+
+    def _apply_orientation(self) -> None:
+        if self._horizontal:
+            self._inner_layout.setDirection(QBoxLayout.LeftToRight)
+            self.setFixedSize(192, 60)
+        else:
+            self._inner_layout.setDirection(QBoxLayout.TopToBottom)
+            self.setFixedSize(56, 200)
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.LeftButton:
@@ -197,6 +334,38 @@ class FloatingToolbar(QFrame):
             self.unsetCursor()
             if self.drag_state_changed:
                 self.drag_state_changed(False)
+
+
+class ToolbarSettingsDialog(QDialog):
+    """悬浮工具栏设置：横 / 竖排列。"""
+
+    def __init__(self, horizontal: bool, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setWindowTitle("设置")
+        self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+
+        layout = QVBoxLayout(self)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("浮动工具栏样式"))
+        self.combo = QComboBox()
+        self.combo.addItem("竖向", False)
+        self.combo.addItem("横向", True)
+        self.combo.setCurrentIndex(1 if horizontal else 0)
+        row.addWidget(self.combo)
+        layout.addLayout(row)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        ok = QPushButton("确定")
+        cancel = QPushButton("取消")
+        ok.clicked.connect(self.accept)
+        cancel.clicked.connect(self.reject)
+        buttons.addWidget(ok)
+        buttons.addWidget(cancel)
+        layout.addLayout(buttons)
+
+    def is_horizontal(self) -> bool:
+        return bool(self.combo.currentData())
 
 
 class MainWindow(QMainWindow):
@@ -227,6 +396,7 @@ class MainWindow(QMainWindow):
 
         self.toolbar = FloatingToolbar()
         self.toolbar.drag_state_changed = self.set_toolbar_dragging
+        self.toolbar.settings_clicked = self.open_toolbar_settings
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.on_frame)
@@ -236,6 +406,16 @@ class MainWindow(QMainWindow):
 
         method = getattr(getattr(device, "screen_proxy", None), "method_name", "MINICAP")
         print(f"[信息] 设备连接成功（{method}）")
+
+    def open_toolbar_settings(self) -> None:
+        dialog = ToolbarSettingsDialog(self.toolbar.is_horizontal(), self)
+        if dialog.exec() == QDialog.Accepted:
+            self.toolbar.set_horizontal(dialog.is_horizontal())
+            if self.toolbar.is_horizontal():
+                self.toolbar.move(
+                    self.x() + self.width() - self.toolbar.width() - 20,
+                    self.y() + 60,
+                )
 
     def start(self) -> None:
         self._preview_started = True
