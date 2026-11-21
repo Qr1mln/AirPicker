@@ -27,8 +27,9 @@ class ToolbarSettingsDialog(QDialog):
         self,
         horizontal: bool,
         resource_dir: Path | str = "",
+        project_dir: Path | str = "",
         coord_expr: str = "({x}, {y})",
-        tpl_expr: str = 'Template(r"{name}", record_pos=({rx}, {ry}), resolution=({rw}, {rh}))',
+        tpl_expr: str = 'Template(r"{path}", record_pos=({rx}, {ry}), resolution=({rw}, {rh}))',
         swipe_expr: str = "swipe(({x1}, {y1}), ({x2}, {y2}))",
         lock_ratio: bool = True,
         parent: QWidget | None = None,
@@ -56,6 +57,18 @@ class ToolbarSettingsDialog(QDialog):
         self.aspect_check = QCheckBox("窗口缩放时保持画面宽高比")
         self.aspect_check.setChecked(bool(lock_ratio))
         form.addRow("", self.aspect_check)
+
+        project_widget = QWidget()
+        project_row = QHBoxLayout(project_widget)
+        project_row.setContentsMargins(0, 0, 0, 0)
+        project_row.setSpacing(6)
+        self.project_edit = QLineEdit(str(project_dir))
+        self.project_edit.setPlaceholderText("留空则相对 airpicker/scripts 计算")
+        project_browse = QPushButton("浏览...")
+        project_browse.clicked.connect(self._browse_project_dir)
+        project_row.addWidget(self.project_edit, 1)
+        project_row.addWidget(project_browse)
+        form.addRow("项目目录", project_widget)
 
         dir_widget = QWidget()
         dir_row = QHBoxLayout(dir_widget)
@@ -119,6 +132,15 @@ class ToolbarSettingsDialog(QDialog):
 
     def resource_dir(self) -> str:
         return self.dir_edit.text().strip()
+
+    def _browse_project_dir(self) -> None:
+        start = self.project_edit.text().strip()
+        chosen = QFileDialog.getExistingDirectory(self, "选择项目目录", start)
+        if chosen:
+            self.project_edit.setText(chosen)
+
+    def project_dir(self) -> str:
+        return self.project_edit.text().strip()
 
     def coord_expr(self) -> str:
         return self.expr_edit.text().strip()

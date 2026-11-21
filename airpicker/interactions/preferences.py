@@ -14,6 +14,7 @@ class PreferencesMixin:
         dialog = ToolbarSettingsDialog(
             self.toolbar.is_horizontal(),
             settings.get_resource_dir(cur),
+            settings.get_project_dir(cur),
             settings.get_coord_expr(cur),
             settings.get_tpl_expr(cur),
             settings.get_swipe_expr(cur),
@@ -25,6 +26,7 @@ class PreferencesMixin:
             self.toolbar.set_horizontal(horizontal)
             settings.save_toolbar_horizontal(horizontal)
             settings.save_resource_dir(dialog.resource_dir())
+            settings.save_project_dir(dialog.project_dir())
             settings.save_coord_expr(dialog.coord_expr())
             settings.save_tpl_expr(dialog.tpl_expr())
             settings.save_swipe_expr(dialog.swipe_expr())

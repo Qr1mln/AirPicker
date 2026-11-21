@@ -3,12 +3,13 @@
     "horizontal": true
   },
   "resource_dir": "D:\\Projects\\airtestProjects\\MSIAppPlayer\\asserts",
+  "project_dir": "D:\\Projects\\airtestProjects\\MSIAppPlayer",
   "coord_expr": "({x}, {y})",
-  "tpl_expr": "Template(r\"asserts/{name}\", record_pos=({rx}, {ry}), resolution=({rw}, {rh}))",
+  "tpl_expr": "Template(r\"{path}\", record_pos=({rx}, {ry}), resolution=({rw}, {rh}))",
   "swipe_expr": "swipe(({x1}, {y1}), ({x2}, {y2}))",
   "lock_ratio": true,
   "window_size": [
-    464,
-    825
+    483,
+    858
   ]
 }

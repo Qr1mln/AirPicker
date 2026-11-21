@@ -32,6 +32,7 @@ def save_template(
     resource_dir: Path | None = None,
     tpl_expr: str | None = None,
     meta: dict | None = None,
+    project_dir: Path | None = None,
 ) -> Path:
     out_dir = resource_dir if resource_dir is not None else PICS_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -39,7 +40,8 @@ def save_template(
     path = out_dir / file_name
     Image.fromarray(cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB)).save(path)
 
-    rel = os.path.relpath(path, SCRIPTS_DIR).replace("\\", "/")
+    base_dir = project_dir if project_dir is not None else SCRIPTS_DIR
+    rel = os.path.relpath(path, base_dir).replace("\\", "/")
     template_code = f'Template(r"{rel}")'
     full_code = f"touch({template_code})"
     expr = tpl_expr if tpl_expr is not None else template_code

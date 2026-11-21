@@ -62,8 +62,9 @@ class SelectionMixin:
 
         cur = settings.load_settings()
         resource_dir = settings.get_resource_dir(cur)
+        project_dir = settings.get_project_dir(cur)
         tpl_expr = settings.get_tpl_expr(cur)
         template_store.save_template(
-            self.frozen_bgr[y1:y2, x1:x2], resource_dir, tpl_expr, meta
+            self.frozen_bgr[y1:y2, x1:x2], resource_dir, tpl_expr, meta, project_dir
         )
         self.frozen_bgr = None

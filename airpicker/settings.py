@@ -7,12 +7,12 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from .config import PICS_DIR, ROOT
+from .config import PICS_DIR, ROOT, SCRIPTS_DIR
 
 SETTINGS_PATH = ROOT / "settings.json"
 
 DEFAULT_COORD_EXPR = "({x}, {y})"
-DEFAULT_TPL_EXPR = 'Template(r"{name}", record_pos=({rx}, {ry}), resolution=({rw}, {rh}))'
+DEFAULT_TPL_EXPR = 'Template(r"{path}", record_pos=({rx}, {ry}), resolution=({rw}, {rh}))'
 DEFAULT_SWIPE_EXPR = "swipe(({x1}, {y1}), ({x2}, {y2}))"
 
 DEFAULTS: dict[str, Any] = {
@@ -20,6 +20,7 @@ DEFAULTS: dict[str, Any] = {
         "horizontal": False,
     },
     "resource_dir": "",
+    "project_dir": "",
     "coord_expr": DEFAULT_COORD_EXPR,
     "tpl_expr": DEFAULT_TPL_EXPR,
     "swipe_expr": DEFAULT_SWIPE_EXPR,
@@ -46,6 +47,9 @@ def load_settings() -> dict[str, Any]:
     resource_dir = raw.get("resource_dir")
     if isinstance(resource_dir, str):
         settings["resource_dir"] = resource_dir.strip()
+    project_dir = raw.get("project_dir")
+    if isinstance(project_dir, str):
+        settings["project_dir"] = project_dir.strip()
     coord_expr = raw.get("coord_expr")
     if isinstance(coord_expr, str):
         settings["coord_expr"] = coord_expr.strip()
@@ -92,6 +96,15 @@ def get_resource_dir(settings: dict[str, Any]) -> Path:
     return PICS_DIR
 
 
+def get_project_dir(settings: dict[str, Any]) -> Path:
+    """模板相对路径的基准目录：未设置时回退到 AirPicker 自带的 scripts 目录。"""
+    raw = settings.get("project_dir", "")
+    if isinstance(raw, str) and raw.strip():
+        path = Path(raw.strip()).expanduser()
+        return path if path.is_absolute() else (ROOT / path)
+    return SCRIPTS_DIR
+
+
 def get_coord_expr(settings: dict[str, Any]) -> str:
     """坐标回写表达式：{x} {y} 为变量占位符，留空回退默认值。"""
     raw = settings.get("coord_expr", "")
@@ -129,6 +142,12 @@ def save_toolbar_horizontal(horizontal: bool) -> None:
 def save_resource_dir(path: str) -> None:
     settings = load_settings()
     settings["resource_dir"] = (path or "").strip()
+    _write_settings(settings)
+
+
+def save_project_dir(path: str) -> None:
+    settings = load_settings()
+    settings["project_dir"] = (path or "").strip()
     _write_settings(settings)
 
 
