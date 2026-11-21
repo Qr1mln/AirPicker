@@ -65,8 +65,9 @@ airpicker/                          Python 包
   ├── image_utils.py                图像处理与坐标换算
   ├── template_store.py             模板保存与剪贴板
   ├── screen_widget.py              投屏控件
-  ├── toolbar.py                    悬浮工具栏
-  └── main_window.py                主窗口编排
+  ├── toolbar/                      悬浮工具栏（图标 / 按钮 / 面板 / 设置弹窗）
+  ├── interactions/                 交互 Mixin（模式 / 手势 / 框选 / 取点 / 按键 / 设置）
+  └── main_window.py                主窗口编排与抓帧渲染
 scripts/test_demo.py                Airtest 示例脚本（粘贴目标）
 pics/                               生成的模板图片
 logs/                               Airtest 日志
