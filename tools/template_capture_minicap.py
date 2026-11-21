@@ -215,7 +215,6 @@ class MainWindow(QMainWindow):
         self._toolbar_dragging = False
         self._window_moving = False
         self._screen_wh = tuple(screen_wh) if screen_wh else None
-        self._aspect_resizing = False
 
         self.setWindowTitle("AirPicker")
         self.screen = ScreenWidget(self)
@@ -269,27 +268,6 @@ class MainWindow(QMainWindow):
             self._move_resume_timer.start(200)
         super().moveEvent(event)
 
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        if self._aspect_resizing or not self._screen_wh or self.isMaximized():
-            return
-        src_w, src_h = self._screen_wh
-        old_size, new_size = event.oldSize(), event.size()
-        if not old_size.isValid():
-            return
-        dw = abs(new_size.width() - old_size.width()) / max(1, old_size.width())
-        dh = abs(new_size.height() - old_size.height()) / max(1, old_size.height())
-        self._aspect_resizing = True
-        if dh > dw:
-            target_w = max(1, int(round(new_size.height() * src_w / src_h)))
-            if target_w != new_size.width():
-                self.resize(target_w, new_size.height())
-        else:
-            target_h = max(1, int(round(new_size.width() * src_h / src_w)))
-            if target_h != new_size.height():
-                self.resize(new_size.width(), target_h)
-        self._aspect_resizing = False
-
     def _aspect_size(self, w: int, h: int) -> tuple[int, int]:
         scale = min(MAX_W / w, MAX_H / h)
         return max(1, int(round(w * scale))), max(1, int(round(h * scale)))
@@ -298,13 +276,6 @@ class MainWindow(QMainWindow):
         if self._screen_wh == (w, h):
             return
         self._screen_wh = (w, h)
-        target_w, target_h = self._aspect_size(w, h)
-        if self.width() == target_w and self.height() == target_h:
-            return
-        self._aspect_resizing = True
-        self.resize(target_w, target_h)
-        self.toolbar.move(self.x() + target_w - 76, self.y() + 60)
-        self._aspect_resizing = False
 
     def _on_move_resume(self) -> None:
         self._window_moving = False
