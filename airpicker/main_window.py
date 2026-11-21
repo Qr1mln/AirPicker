@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 
 import numpy as np
-from PySide6.QtCore import QEvent, QPoint, Qt, QTimer
+from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtWidgets import QDialog, QMainWindow
 
 from . import image_utils, settings, template_store
@@ -63,8 +63,7 @@ class MainWindow(QMainWindow):
         else:
             self.resize(MAX_W, MAX_H)
 
-        self.toolbar = FloatingToolbar()
-        self.toolbar.main_window = self
+        self.toolbar = FloatingToolbar(self)
         self.toolbar.set_horizontal(settings.get_toolbar_horizontal(cur_settings))
         self.toolbar.drag_state_changed = self.set_toolbar_dragging
         self.toolbar.settings_clicked = self.open_toolbar_settings
@@ -235,8 +234,8 @@ class MainWindow(QMainWindow):
             self._lock_ratio = dialog.lock_ratio()
             if horizontal:
                 self.toolbar.move(
-                    self.x() + self.width() - self.toolbar.width() - 20,
-                    self.y() + 60,
+                    self.width() - self.toolbar.width() - 20,
+                    60,
                 )
             self.toolbar.constrain_to_window()
 
@@ -264,20 +263,12 @@ class MainWindow(QMainWindow):
         if not self._toolbar_dragging and not self._window_moving:
             self.set_preview_paused(False)
 
-    def event(self, event) -> bool:
-        if event.type() in (QEvent.WindowActivate, QEvent.ActivationChange):
-            if self.isActiveWindow() and hasattr(self, "toolbar"):
-                self.toolbar.raise_above_main()
-        return super().event(event)
-
     def moveEvent(self, event) -> None:
         if self._preview_started:
             self._window_moving = True
             self.set_preview_paused(True)
             self._move_resume_timer.start(200)
         super().moveEvent(event)
-        if hasattr(self, "toolbar"):
-            self.toolbar.follow_window()
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -459,5 +450,4 @@ class MainWindow(QMainWindow):
         self._move_resume_timer.stop()
         self._aspect_timer.stop()
         settings.save_window_size(max(1, self.width()), max(1, self.height()))
-        self.toolbar.close()
         super().closeEvent(event)

@@ -231,10 +231,10 @@ class IconButton(QWidget):
 
 
 class FloatingToolbar(QFrame):
-    """独立顶层悬浮窗口：无边框，作为主窗口的 owned window 浮于其上方，可鼠标拖拽。"""
+    """主窗口的无边框子部件：天然浮于父窗口之上、随之移动/最小化，可鼠标拖拽。"""
 
-    def __init__(self):
-        super().__init__(None, Qt.Tool | Qt.FramelessWindowHint)
+    def __init__(self, parent: QWidget):
+        super().__init__(parent, Qt.FramelessWindowHint)
         self._drag_pos: QPoint | None = None
         self.drag_state_changed = None
         self.settings_clicked = None
@@ -243,8 +243,6 @@ class FloatingToolbar(QFrame):
         self.swipe_clicked = None
         self.back_clicked = None
         self.home_clicked = None
-        self.main_window: QWidget | None = None
-        self._window_offset: QPoint | None = None
         self._horizontal = False
         self.setStyleSheet(
             "FloatingToolbar { background: #1e1e1e; border: 1px solid #3a3a3a; }"
@@ -326,67 +324,32 @@ class FloatingToolbar(QFrame):
             self.setFixedSize(56, 344)
 
     def _clamp_pos(self, pos: QPoint) -> QPoint:
-        window = self.main_window
-        if window is None:
+        parent = self.parentWidget()
+        if parent is None:
             return pos
-        bounds = window.geometry()
-        if bounds.width() < 1 or bounds.height() < 1:
-            return pos
-        x = max(bounds.left(), min(pos.x(), bounds.right() - self.width() + 1))
-        y = max(bounds.top(), min(pos.y(), bounds.bottom() - self.height() + 1))
+        x = max(0, min(pos.x(), parent.width() - self.width()))
+        y = max(0, min(pos.y(), parent.height() - self.height()))
         return QPoint(x, y)
 
     def constrain_to_window(self) -> None:
         target = self._clamp_pos(self.pos())
         if target != self.pos():
             self.move(target)
-        self.sync_offset()
-
-    def sync_offset(self) -> None:
-        """记录工具栏相对主窗口左上角的偏移。"""
-        if self.main_window is not None:
-            self._window_offset = self.pos() - self.main_window.pos()
-
-    def follow_window(self) -> None:
-        """主窗口移动时按记录的偏移跟随。"""
-        if self.main_window is None or self._window_offset is None:
-            self.constrain_to_window()
-            return
-        self.move(self._clamp_pos(self.main_window.pos() + self._window_offset))
-
-    def raise_above_main(self) -> None:
-        """把工具栏 Z 序抬到主窗口之上（非全局置顶，不遮挡其他程序）。"""
-        if self.main_window is None:
-            return
-        try:
-            import win32con
-            import win32gui
-
-            toolbar_hwnd = int(self.winId())
-            main_hwnd = int(self.main_window.winId())
-            win32gui.SetWindowPos(
-                toolbar_hwnd, main_hwnd, 0, 0, 0, 0,
-                win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE,
-            )
-        except Exception as exc:
-            print(f"[警告] 抬升工具栏失败：{exc}")
-            self.raise_()
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.LeftButton:
-            self._drag_pos = event.globalPosition().toPoint() - self.pos()
+            self._drag_pos = event.position().toPoint()
             self.setCursor(Qt.ClosedHandCursor)
             if self.drag_state_changed:
                 self.drag_state_changed(True)
 
     def mouseMoveEvent(self, event) -> None:
         if self._drag_pos is not None:
-            self.move(self._clamp_pos(event.globalPosition().toPoint() - self._drag_pos))
+            self.move(self._clamp_pos(event.position().toPoint() - self._drag_pos))
 
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == Qt.LeftButton:
             self._drag_pos = None
-            self.sync_offset()
             self.unsetCursor()
             if self.drag_state_changed:
                 self.drag_state_changed(False)
