@@ -10,7 +10,7 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from .config import COPY_MODE, PICS_DIR, SCRIPTS_DIR
+from .config import PICS_DIR, SCRIPTS_DIR
 
 try:
     import pyperclip
@@ -27,21 +27,35 @@ def copy_text(text: str, tip: str) -> None:
     except Exception as exc:
         print(f"剪贴板不可用（{exc}），请手动复制：{text}")
 
-
-def save_template(crop_bgr: np.ndarray) -> Path:
-    PICS_DIR.mkdir(parents=True, exist_ok=True)
-    name = f"tpl_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]}.png"
-    path = PICS_DIR / name
+def save_template(
+    crop_bgr: np.ndarray,
+    resource_dir: Path | None = None,
+    tpl_expr: str | None = None,
+    meta: dict | None = None,
+) -> Path:
+    out_dir = resource_dir if resource_dir is not None else PICS_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+    file_name = f"tpl_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]}.png"
+    path = out_dir / file_name
     Image.fromarray(cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB)).save(path)
 
     rel = os.path.relpath(path, SCRIPTS_DIR).replace("\\", "/")
     template_code = f'Template(r"{rel}")'
     full_code = f"touch({template_code})"
-    mode = COPY_MODE if COPY_MODE in ("touch", "template") else "touch"
-    code = full_code if mode == "touch" else template_code
+    expr = tpl_expr if tpl_expr is not None else template_code
+    m = meta or {}
+    code = (
+        expr.replace("{path}", rel)
+        .replace("{name}", file_name)
+        .replace("{rx}", str(m.get("rx", 0.0)))
+        .replace("{ry}", str(m.get("ry", 0.0)))
+        .replace("{rw}", str(m.get("rw", 0)))
+        .replace("{rh}", str(m.get("rh", 0)))
+    )
 
     print(f"模板已保存：{path.as_posix()}")
     print(f"Template：{template_code}")
     print(f"完整命令：{full_code}")
+    print(f"回写表达式：{expr}")
     copy_text(code, "已复制到剪贴板")
     return path

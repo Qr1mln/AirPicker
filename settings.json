@@ -1,5 +1,13 @@
 {
   "toolbar": {
     "horizontal": true
-  }
+  },
+  "resource_dir": "D:\\Projects\\PyProjects\\AirPicker\\pics",
+  "coord_expr": "({x}, {y})",
+  "tpl_expr": "Template(r\"{name}\", record_pos=({rx}, {ry}), resolution=({rw}, {rh}))",
+  "lock_ratio": true,
+  "window_size": [
+    371,
+    660
+  ]
 }

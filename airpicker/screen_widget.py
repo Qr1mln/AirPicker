@@ -98,18 +98,33 @@ class ScreenWidget(QLabel):
         pos = self.app.cursor_pos
         if pos is not None and self.app.latest_bgr is not None:
             x, y = self.app.to_source(pos)
-            text = f"{x}, {y}"
+            mode = self.app.interaction_mode
+            coord_text = f"{x}, {y}"
+            hint_text = ""
+            if mode == MODE_PICK_COORD:
+                hint_text = "坐标：单击取点"
+            elif mode == MODE_SELECT:
+                hint_text = "框选模板：拖拽框选"
+
             fm = painter.fontMetrics()
-            tw, th = fm.horizontalAdvance(text), fm.height()
+            line_h = fm.height()
+            lines = 1 if not hint_text else 2
+            tw = max(fm.horizontalAdvance(coord_text), fm.horizontalAdvance(hint_text))
+            pad_x, pad_y = 8, 6
+            box_w, box_h = tw + pad_x * 2, line_h * lines + pad_y * 2
             bx, by = pos.x() + 14, pos.y() + 14
-            if bx + tw + 12 > self.width():
-                bx = pos.x() - tw - 20
-            if by + th + 10 > self.height():
-                by = pos.y() - th - 16
+            if bx + box_w > self.width():
+                bx = pos.x() - box_w - 14
+            if by + box_h > self.height():
+                by = pos.y() - box_h - 14
             bx, by = max(0, bx), max(0, by)
+
             painter.setPen(Qt.NoPen)
-            painter.setBrush(QColor(20, 20, 20, 210))
-            painter.drawRoundedRect(bx, by, tw + 12, th + 8, 4, 4)
+            painter.setBrush(QColor(20, 20, 20, 215))
+            painter.drawRoundedRect(bx, by, box_w, box_h, 5, 5)
             painter.setPen(QColor(240, 240, 240))
-            painter.drawText(bx + 6, by + 4 + fm.ascent(), text)
+            painter.drawText(bx + pad_x, by + pad_y + fm.ascent(), coord_text)
+            if hint_text:
+                painter.setPen(QColor(255, 200, 60))
+                painter.drawText(bx + pad_x, by + pad_y + line_h + fm.ascent(), hint_text)
         painter.end()

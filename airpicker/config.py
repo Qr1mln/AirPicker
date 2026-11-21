@@ -15,7 +15,7 @@ FPS = 30
 FRAME_INTERVAL_MS = max(1, int(1000 / max(1, FPS)))
 
 # -------------------------------- 模板 --------------------------------
-COPY_MODE = "touch"  # "touch" -> touch(Template(...))；"template" -> Template(...)
+COPY_MODE = "template"  # "touch" -> touch(Template(...))；"template" -> Template(...)
 MIN_SELECT = 4
 
 # -------------------------------- 交互模式 --------------------------------
