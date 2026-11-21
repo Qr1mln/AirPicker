@@ -16,14 +16,14 @@ uv sync
 ## 使用
 
 1. 手机开启 USB 调试，执行 `adb devices` 确认能看到设备。
-2. 如需调整配置，修改 `tools/template_capture_minicap.py` 顶部配置区：
+2. 如需调整配置，修改 `airpicker/config.py`：
    - `SERIAL`：多设备时指定序列号，留空则使用默认设备。
    - `COPY_MODE`：`touch` 生成 `touch(Template(...))`，`template` 只生成 `Template(...)`。
    - `MAX_W / MAX_H`、`FPS`：控制显示窗口大小与刷新率。
 3. 运行工具：
 
    ```bash
-   uv run python tools/template_capture_minicap.py
+   uv run python -m airpicker
    ```
 
    （在 PyCharm 中也可直接运行项目根目录的 `main.py`。）
@@ -43,12 +43,21 @@ uv sync
 Android:///?cap_method=JAVACAP&touch_method=MINITOUCH
 ```
 
-将 `tools/template_capture_minicap.py` 顶部的 `DEVICE_URI` 改为上述字符串后重试。多设备时保留 `127.0.0.1:5037/序列号` 部分，只替换 `cap_method`。
+将 `airpicker/config.py` 里的 `DEVICE_URI` 改为上述字符串后重试。多设备时保留 `127.0.0.1:5037/序列号` 部分，只替换 `cap_method`。
 
 ## 目录结构
 
 ```text
-tools/template_capture_minicap.py   模板截取工具
+main.py                             PyCharm 入口
+airpicker/                          Python 包
+  ├── __main__.py                   启动入口（python -m airpicker）
+  ├── config.py                     配置常量
+  ├── device.py                     设备连接
+  ├── image_utils.py                图像处理与坐标换算
+  ├── template_store.py             模板保存与剪贴板
+  ├── screen_widget.py              投屏控件
+  ├── toolbar.py                    悬浮工具栏
+  └── main_window.py                主窗口编排
 scripts/test_demo.py                Airtest 示例脚本（粘贴目标）
 pics/                               生成的模板图片
 logs/                               Airtest 日志
