@@ -22,6 +22,7 @@ MIN_SELECT = 4
 MODE_GESTURE = "gesture"        # 默认：鼠标模拟设备触控 / 滑动
 MODE_SELECT = "select"          # 框选模板
 MODE_PICK_COORD = "pick_coord"  # 获取坐标（此时触控 / 滑动失效）
+MODE_SWIPE = "swipe"            # 滑动命令：拖拽生成 swipe 代码（此时触控 / 滑动失效）
 
 TAP_SLOP = 6          # 鼠标位移小于该像素视为点击，否则视为滑动
 SWIPE_DURATION = 0.3  # 模拟滑动持续时间（秒）

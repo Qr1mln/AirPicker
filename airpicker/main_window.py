@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 
 import numpy as np
-from PySide6.QtCore import QPoint, Qt, QTimer
+from PySide6.QtCore import QEvent, QPoint, Qt, QTimer
 from PySide6.QtWidgets import QDialog, QMainWindow
 
 from . import image_utils, settings, template_store
@@ -17,6 +17,7 @@ from .config import (
     MODE_GESTURE,
     MODE_PICK_COORD,
     MODE_SELECT,
+    MODE_SWIPE,
     SWIPE_DURATION,
     TAP_SLOP,
 )
@@ -69,6 +70,7 @@ class MainWindow(QMainWindow):
         self.toolbar.settings_clicked = self.open_toolbar_settings
         self.toolbar.select_clicked = self.start_select_mode
         self.toolbar.coord_clicked = self.start_pick_coord
+        self.toolbar.swipe_clicked = self.start_swipe_mode
         self.toolbar.back_clicked = self.device_back
         self.toolbar.home_clicked = self.device_home
 
@@ -101,6 +103,9 @@ class MainWindow(QMainWindow):
         elif mode == MODE_SELECT:
             self.screen.setCursor(Qt.CrossCursor)
             self.setWindowTitle("AirPicker · 框选模式：拖拽框选模板，右键取消")
+        elif mode == MODE_SWIPE:
+            self.screen.setCursor(Qt.CrossCursor)
+            self.setWindowTitle("AirPicker · 滑动模式：拖拽起点到终点生成 swipe 代码，右键取消")
         else:
             self.screen.unsetCursor()
             self._last_title = ""
@@ -114,6 +119,41 @@ class MainWindow(QMainWindow):
             print("[提示] 画面尚未就绪，暂时无法框选")
             return
         self.set_interaction_mode(MODE_SELECT)
+
+    # -------- 滑动命令 --------
+    def start_swipe_mode(self) -> None:
+        if self.latest_bgr is None:
+            print("[提示] 画面尚未就绪，暂时无法滑动取码")
+            return
+        self.set_interaction_mode(MODE_SWIPE)
+
+    def begin_swipe(self, pos: QPoint) -> None:
+        self.gesture_start = pos
+        self.gesture_end = pos
+        self.gesturing = True
+        self.screen.update()
+
+    def update_swipe(self, pos: QPoint) -> None:
+        if not self.gesturing:
+            return
+        self.gesture_end = pos
+        self.screen.update()
+
+    def finish_swipe(self, pos: QPoint) -> None:
+        if not self.gesturing or self.gesture_start is None:
+            self.cancel_gesture()
+            return
+        start = self.gesture_start
+        self.cancel_gesture()
+        x1, y1 = self.to_source(start)
+        x2, y2 = self.to_source(pos)
+        expr = settings.get_swipe_expr(settings.load_settings())
+        template_store.copy_swipe(x1, y1, x2, y2, expr)
+        self.reset_interaction_mode()
+
+    def cancel_swipe(self) -> None:
+        self.cancel_gesture()
+        self.reset_interaction_mode()
 
     # -------- 鼠标模拟触控 / 滑动 --------
     def begin_gesture(self, pos: QPoint) -> None:
@@ -179,6 +219,7 @@ class MainWindow(QMainWindow):
             settings.get_resource_dir(cur),
             settings.get_coord_expr(cur),
             settings.get_tpl_expr(cur),
+            settings.get_swipe_expr(cur),
             settings.get_lock_ratio(cur),
             self,
         )
@@ -189,6 +230,7 @@ class MainWindow(QMainWindow):
             settings.save_resource_dir(dialog.resource_dir())
             settings.save_coord_expr(dialog.coord_expr())
             settings.save_tpl_expr(dialog.tpl_expr())
+            settings.save_swipe_expr(dialog.swipe_expr())
             settings.save_lock_ratio(dialog.lock_ratio())
             self._lock_ratio = dialog.lock_ratio()
             if horizontal:
@@ -221,6 +263,12 @@ class MainWindow(QMainWindow):
     def _maybe_resume_preview(self) -> None:
         if not self._toolbar_dragging and not self._window_moving:
             self.set_preview_paused(False)
+
+    def event(self, event) -> bool:
+        if event.type() in (QEvent.WindowActivate, QEvent.ActivationChange):
+            if self.isActiveWindow() and hasattr(self, "toolbar"):
+                self.toolbar.raise_above_main()
+        return super().event(event)
 
     def moveEvent(self, event) -> None:
         if self._preview_started:

@@ -43,6 +43,7 @@ def main() -> None:
     window.toolbar.constrain_to_window()
     window.toolbar.sync_offset()
     window.toolbar.show()
+    window.toolbar.raise_above_main()
     QTimer.singleShot(0, window.start)
     app.exec()
 

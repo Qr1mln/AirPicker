@@ -13,6 +13,7 @@ SETTINGS_PATH = ROOT / "settings.json"
 
 DEFAULT_COORD_EXPR = "({x}, {y})"
 DEFAULT_TPL_EXPR = 'Template(r"{name}", record_pos=({rx}, {ry}), resolution=({rw}, {rh}))'
+DEFAULT_SWIPE_EXPR = "swipe(({x1}, {y1}), ({x2}, {y2}))"
 
 DEFAULTS: dict[str, Any] = {
     "toolbar": {
@@ -21,6 +22,7 @@ DEFAULTS: dict[str, Any] = {
     "resource_dir": "",
     "coord_expr": DEFAULT_COORD_EXPR,
     "tpl_expr": DEFAULT_TPL_EXPR,
+    "swipe_expr": DEFAULT_SWIPE_EXPR,
     "lock_ratio": True,
     "window_size": None,
 }
@@ -50,6 +52,9 @@ def load_settings() -> dict[str, Any]:
     tpl_expr = raw.get("tpl_expr")
     if isinstance(tpl_expr, str):
         settings["tpl_expr"] = tpl_expr.strip()
+    swipe_expr = raw.get("swipe_expr")
+    if isinstance(swipe_expr, str):
+        settings["swipe_expr"] = swipe_expr.strip()
     lock_ratio = raw.get("lock_ratio")
     if isinstance(lock_ratio, bool):
         settings["lock_ratio"] = lock_ratio
@@ -99,6 +104,12 @@ def get_tpl_expr(settings: dict[str, Any]) -> str:
     return raw if isinstance(raw, str) and raw.strip() else DEFAULT_TPL_EXPR
 
 
+def get_swipe_expr(settings: dict[str, Any]) -> str:
+    """滑动回写表达式：{x1}/{y1} 起点、{x2}/{y2} 终点。"""
+    raw = settings.get("swipe_expr", "")
+    return raw if isinstance(raw, str) and raw.strip() else DEFAULT_SWIPE_EXPR
+
+
 def _write_settings(settings: dict[str, Any]) -> None:
     try:
         SETTINGS_PATH.write_text(
@@ -130,6 +141,12 @@ def save_coord_expr(expr: str) -> None:
 def save_tpl_expr(expr: str) -> None:
     settings = load_settings()
     settings["tpl_expr"] = (expr or "").strip() or DEFAULT_TPL_EXPR
+    _write_settings(settings)
+
+
+def save_swipe_expr(expr: str) -> None:
+    settings = load_settings()
+    settings["swipe_expr"] = (expr or "").strip() or DEFAULT_SWIPE_EXPR
     _write_settings(settings)
 
 

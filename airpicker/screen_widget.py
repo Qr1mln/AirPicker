@@ -8,7 +8,7 @@ from PySide6.QtCore import QRect, Qt
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QLabel
 
-from .config import MODE_GESTURE, MODE_PICK_COORD, MODE_SELECT
+from .config import MODE_GESTURE, MODE_PICK_COORD, MODE_SELECT, MODE_SWIPE
 
 if TYPE_CHECKING:
     from .main_window import MainWindow
@@ -43,6 +43,12 @@ class ScreenWidget(QLabel):
             elif event.button() == Qt.RightButton:
                 self.app.cancel_selection()
             return
+        if mode == MODE_SWIPE:
+            if event.button() == Qt.LeftButton:
+                self.app.begin_swipe(event.position().toPoint())
+            elif event.button() == Qt.RightButton:
+                self.app.cancel_swipe()
+            return
         if event.button() == Qt.LeftButton:
             self.app.begin_gesture(event.position().toPoint())
 
@@ -55,6 +61,8 @@ class ScreenWidget(QLabel):
             return
         if mode == MODE_SELECT:
             self.app.update_selection(pos)
+        elif mode == MODE_SWIPE:
+            self.app.update_swipe(pos)
         else:
             self.app.update_gesture(pos)
 
@@ -72,6 +80,8 @@ class ScreenWidget(QLabel):
             return
         if mode == MODE_SELECT:
             self.app.finish_selection(pos)
+        elif mode == MODE_SWIPE:
+            self.app.finish_swipe(pos)
         else:
             self.app.finish_gesture(pos)
 
@@ -80,14 +90,23 @@ class ScreenWidget(QLabel):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         if (
-            self.app.interaction_mode == MODE_GESTURE
+            self.app.interaction_mode in (MODE_GESTURE, MODE_SWIPE)
             and self.app.gesturing
             and self.app.gesture_start is not None
             and self.app.gesture_end is not None
             and self.app.gesture_start != self.app.gesture_end
         ):
-            painter.setPen(QPen(QColor(255, 200, 60, 190), 2))
+            color = (
+                QColor(80, 170, 255, 210)
+                if self.app.interaction_mode == MODE_SWIPE
+                else QColor(255, 200, 60, 190)
+            )
+            painter.setPen(QPen(color, 2))
             painter.drawLine(self.app.gesture_start, self.app.gesture_end)
+            for pt in (self.app.gesture_start, self.app.gesture_end):
+                painter.setBrush(color)
+                painter.drawEllipse(pt, 3, 3)
+                painter.setBrush(Qt.NoBrush)
         if self.app.dragging and self.app.drag_start and self.app.drag_end:
             rect = QRect(self.app.drag_start, self.app.drag_end).normalized()
             pen = QPen(QColor(40, 167, 69), 4)
@@ -105,6 +124,8 @@ class ScreenWidget(QLabel):
                 hint_text = "坐标：单击取点"
             elif mode == MODE_SELECT:
                 hint_text = "框选模板：拖拽框选"
+            elif mode == MODE_SWIPE:
+                hint_text = "滑动：拖拽起点→终点生成代码"
 
             fm = painter.fontMetrics()
             line_h = fm.height()

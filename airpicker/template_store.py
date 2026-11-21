@@ -59,3 +59,17 @@ def save_template(
     print(f"回写表达式：{expr}")
     copy_text(code, "已复制到剪贴板")
     return path
+
+
+def copy_swipe(x1: int, y1: int, x2: int, y2: int, expr: str) -> str:
+    """按滑动回写表达式生成并复制 swipe 代码。"""
+    code = (
+        expr.replace("{x1}", str(x1))
+        .replace("{y1}", str(y1))
+        .replace("{x2}", str(x2))
+        .replace("{y2}", str(y2))
+    )
+    print(f"[滑动] {x1}, {y1} -> {x2}, {y2}")
+    print(f"回写：{code}")
+    copy_text(code, "swipe 代码已复制到剪贴板")
+    return code

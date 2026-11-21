@@ -5,9 +5,10 @@
   "resource_dir": "D:\\Projects\\PyProjects\\AirPicker\\pics",
   "coord_expr": "({x}, {y})",
   "tpl_expr": "Template(r\"{name}\", record_pos=({rx}, {ry}), resolution=({rw}, {rh}))",
+  "swipe_expr": "swipe(({x1}, {y1}), ({x2}, {y2}))",
   "lock_ratio": true,
   "window_size": [
-    371,
-    660
+    464,
+    825
   ]
 }

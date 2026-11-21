@@ -204,6 +204,12 @@ class IconButton(QWidget):
             ):
                 p.drawLine(ax, ay, ax + 5 * sx, ay)
                 p.drawLine(ax, ay, ax, ay + 5 * sy)
+        elif k == "swipe":
+            sx, sy, ex, ey = int(cx - 10), int(cy + 8), int(cx + 10), int(cy - 8)
+            p.drawLine(sx, sy, ex, ey)
+            p.drawEllipse(QPointF(sx, sy), 2.5, 2.5)
+            p.drawLine(ex, ey, ex - 7, ey + 1)
+            p.drawLine(ex, ey, ex - 1, ey + 7)
         elif k == "settings":
             teeth = 8
             step = 2 * math.pi / teeth
@@ -225,15 +231,16 @@ class IconButton(QWidget):
 
 
 class FloatingToolbar(QFrame):
-    """独立顶层悬浮窗口：无边框、置顶、可鼠标拖拽。"""
+    """独立顶层悬浮窗口：无边框，作为主窗口的 owned window 浮于其上方，可鼠标拖拽。"""
 
     def __init__(self):
-        super().__init__(None, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        super().__init__(None, Qt.Tool | Qt.FramelessWindowHint)
         self._drag_pos: QPoint | None = None
         self.drag_state_changed = None
         self.settings_clicked = None
         self.coord_clicked = None
         self.select_clicked = None
+        self.swipe_clicked = None
         self.back_clicked = None
         self.home_clicked = None
         self.main_window: QWidget | None = None
@@ -268,6 +275,7 @@ class FloatingToolbar(QFrame):
         for kind, callback in (
             ("coord", self._pick_coord),
             ("select", self._select_template),
+            ("swipe", self._start_swipe),
         ):
             btn = IconButton(kind, self._inner)
             btn.setObjectName("toolbarIcon")
@@ -295,6 +303,10 @@ class FloatingToolbar(QFrame):
         if self.coord_clicked:
             self.coord_clicked()
 
+    def _start_swipe(self) -> None:
+        if self.swipe_clicked:
+            self.swipe_clicked()
+
     def is_horizontal(self) -> bool:
         return self._horizontal
 
@@ -308,10 +320,10 @@ class FloatingToolbar(QFrame):
         self._separator.set_horizontal(self._horizontal)
         if self._horizontal:
             self._inner_layout.setDirection(QBoxLayout.LeftToRight)
-            self.setFixedSize(284, 60)
+            self.setFixedSize(324, 60)
         else:
             self._inner_layout.setDirection(QBoxLayout.TopToBottom)
-            self.setFixedSize(56, 300)
+            self.setFixedSize(56, 344)
 
     def _clamp_pos(self, pos: QPoint) -> QPoint:
         window = self.main_window
@@ -342,6 +354,24 @@ class FloatingToolbar(QFrame):
             return
         self.move(self._clamp_pos(self.main_window.pos() + self._window_offset))
 
+    def raise_above_main(self) -> None:
+        """把工具栏 Z 序抬到主窗口之上（非全局置顶，不遮挡其他程序）。"""
+        if self.main_window is None:
+            return
+        try:
+            import win32con
+            import win32gui
+
+            toolbar_hwnd = int(self.winId())
+            main_hwnd = int(self.main_window.winId())
+            win32gui.SetWindowPos(
+                toolbar_hwnd, main_hwnd, 0, 0, 0, 0,
+                win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE,
+            )
+        except Exception as exc:
+            print(f"[警告] 抬升工具栏失败：{exc}")
+            self.raise_()
+
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.LeftButton:
             self._drag_pos = event.globalPosition().toPoint() - self.pos()
@@ -371,6 +401,7 @@ class ToolbarSettingsDialog(QDialog):
         resource_dir: Path | str = "",
         coord_expr: str = "({x}, {y})",
         tpl_expr: str = 'Template(r"{name}", record_pos=({rx}, {ry}), resolution=({rw}, {rh}))',
+        swipe_expr: str = "swipe(({x1}, {y1}), ({x2}, {y2}))",
         lock_ratio: bool = True,
         parent: QWidget | None = None,
     ):
@@ -427,6 +458,13 @@ class ToolbarSettingsDialog(QDialog):
         tpl_hint.setWordWrap(True)
         form.addRow("", tpl_hint)
 
+        self.swipe_edit = QLineEdit(swipe_expr)
+        form.addRow("滑动回写", self.swipe_edit)
+        swipe_hint = QLabel("变量：{x1}/{y1}=起点，{x2}/{y2}=终点（可任意组合）")
+        swipe_hint.setStyleSheet("color: #888; font-size: 11px;")
+        swipe_hint.setWordWrap(True)
+        form.addRow("", swipe_hint)
+
         root.addLayout(form)
 
         buttons = QHBoxLayout()
@@ -459,6 +497,9 @@ class ToolbarSettingsDialog(QDialog):
 
     def tpl_expr(self) -> str:
         return self.tpl_edit.text().strip()
+
+    def swipe_expr(self) -> str:
+        return self.swipe_edit.text().strip()
 
     def lock_ratio(self) -> bool:
         return self.aspect_check.isChecked()
