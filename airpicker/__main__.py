@@ -36,7 +36,12 @@ def main() -> None:
     app = QApplication([])
     window = MainWindow(device, screen_wh)
     window.show()
-    window.toolbar.move(window.x() + window.width() - 76, window.y() + 60)
+    window.toolbar.move(
+        window.x() + window.width() - window.toolbar.width() - 20,
+        window.y() + 60,
+    )
+    window.toolbar.constrain_to_window()
+    window.toolbar.sync_offset()
     window.toolbar.show()
     QTimer.singleShot(0, window.start)
     app.exec()

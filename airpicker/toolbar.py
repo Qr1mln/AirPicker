@@ -191,6 +191,14 @@ class IconButton(QWidget):
             p.drawLine(int(cx + 4), int(cy), int(cx + 13), int(cy))
             p.drawLine(int(cx), int(cy - 13), int(cx), int(cy - 4))
             p.drawLine(int(cx), int(cy + 4), int(cx), int(cy + 13))
+        elif k == "select":
+            x1, y1, x2, y2 = int(cx - 10), int(cy - 9), int(cx + 10), int(cy + 9)
+            for ax, ay, sx, sy in (
+                (x1, y1, 1, 1), (x2, y1, -1, 1),
+                (x1, y2, 1, -1), (x2, y2, -1, -1),
+            ):
+                p.drawLine(ax, ay, ax + 5 * sx, ay)
+                p.drawLine(ax, ay, ax, ay + 5 * sy)
         elif k == "settings":
             teeth = 8
             step = 2 * math.pi / teeth
@@ -220,6 +228,11 @@ class FloatingToolbar(QFrame):
         self.drag_state_changed = None
         self.settings_clicked = None
         self.coord_clicked = None
+        self.select_clicked = None
+        self.back_clicked = None
+        self.home_clicked = None
+        self.main_window: QWidget | None = None
+        self._window_offset: QPoint | None = None
         self._horizontal = False
         self.setStyleSheet(
             "FloatingToolbar { background: #1e1e1e; border: 1px solid #3a3a3a; }"
@@ -238,20 +251,40 @@ class FloatingToolbar(QFrame):
         for kind in ("refresh", "back", "home", "settings"):
             btn = IconButton(kind, self._inner)
             btn.setObjectName("toolbarIcon")
-            if kind == "settings":
+            if kind == "back":
+                btn.clicked = self._go_back
+            elif kind == "home":
+                btn.clicked = self._go_home
+            elif kind == "settings":
                 btn.clicked = self._open_settings
             self._inner_layout.addWidget(btn)
         self._separator = ToolbarSeparator(False, self._inner)
         self._inner_layout.addWidget(self._separator)
-        coord_btn = IconButton("coord", self._inner)
-        coord_btn.setObjectName("toolbarIcon")
-        coord_btn.clicked = self._pick_coord
-        self._inner_layout.addWidget(coord_btn)
+        for kind, callback in (
+            ("select", self._select_template),
+            ("coord", self._pick_coord),
+        ):
+            btn = IconButton(kind, self._inner)
+            btn.setObjectName("toolbarIcon")
+            btn.clicked = callback
+            self._inner_layout.addWidget(btn)
         self._apply_orientation()
+
+    def _go_back(self) -> None:
+        if self.back_clicked:
+            self.back_clicked()
+
+    def _go_home(self) -> None:
+        if self.home_clicked:
+            self.home_clicked()
 
     def _open_settings(self) -> None:
         if self.settings_clicked:
             self.settings_clicked()
+
+    def _select_template(self) -> None:
+        if self.select_clicked:
+            self.select_clicked()
 
     def _pick_coord(self) -> None:
         if self.coord_clicked:
@@ -270,10 +303,39 @@ class FloatingToolbar(QFrame):
         self._separator.set_horizontal(self._horizontal)
         if self._horizontal:
             self._inner_layout.setDirection(QBoxLayout.LeftToRight)
-            self.setFixedSize(244, 60)
+            self.setFixedSize(284, 60)
         else:
             self._inner_layout.setDirection(QBoxLayout.TopToBottom)
-            self.setFixedSize(56, 256)
+            self.setFixedSize(56, 300)
+
+    def _clamp_pos(self, pos: QPoint) -> QPoint:
+        window = self.main_window
+        if window is None:
+            return pos
+        bounds = window.geometry()
+        if bounds.width() < 1 or bounds.height() < 1:
+            return pos
+        x = max(bounds.left(), min(pos.x(), bounds.right() - self.width() + 1))
+        y = max(bounds.top(), min(pos.y(), bounds.bottom() - self.height() + 1))
+        return QPoint(x, y)
+
+    def constrain_to_window(self) -> None:
+        target = self._clamp_pos(self.pos())
+        if target != self.pos():
+            self.move(target)
+        self.sync_offset()
+
+    def sync_offset(self) -> None:
+        """记录工具栏相对主窗口左上角的偏移。"""
+        if self.main_window is not None:
+            self._window_offset = self.pos() - self.main_window.pos()
+
+    def follow_window(self) -> None:
+        """主窗口移动时按记录的偏移跟随。"""
+        if self.main_window is None or self._window_offset is None:
+            self.constrain_to_window()
+            return
+        self.move(self._clamp_pos(self.main_window.pos() + self._window_offset))
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.LeftButton:
@@ -284,11 +346,12 @@ class FloatingToolbar(QFrame):
 
     def mouseMoveEvent(self, event) -> None:
         if self._drag_pos is not None:
-            self.move(event.globalPosition().toPoint() - self._drag_pos)
+            self.move(self._clamp_pos(event.globalPosition().toPoint() - self._drag_pos))
 
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == Qt.LeftButton:
             self._drag_pos = None
+            self.sync_offset()
             self.unsetCursor()
             if self.drag_state_changed:
                 self.drag_state_changed(False)

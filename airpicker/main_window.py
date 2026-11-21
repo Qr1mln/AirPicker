@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""主窗口：编排抓帧渲染、框选、取点与悬浮工具栏。"""
+"""主窗口：编排抓帧渲染、手势、框选、取点与悬浮工具栏。"""
 from __future__ import annotations
 
 import time
@@ -8,8 +8,18 @@ import numpy as np
 from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtWidgets import QDialog, QMainWindow
 
-from . import image_utils, template_store
-from .config import FRAME_INTERVAL_MS, MAX_H, MAX_W, MIN_SELECT
+from . import image_utils, settings, template_store
+from .config import (
+    FRAME_INTERVAL_MS,
+    MAX_H,
+    MAX_W,
+    MIN_SELECT,
+    MODE_GESTURE,
+    MODE_PICK_COORD,
+    MODE_SELECT,
+    SWIPE_DURATION,
+    TAP_SLOP,
+)
 from .screen_widget import ScreenWidget
 from .toolbar import FloatingToolbar, ToolbarSettingsDialog
 
@@ -23,6 +33,9 @@ class MainWindow(QMainWindow):
         self.drag_start: QPoint | None = None
         self.drag_end: QPoint | None = None
         self.dragging = False
+        self.gesture_start: QPoint | None = None
+        self.gesture_end: QPoint | None = None
+        self.gesturing = False
         self.frame_times: list[float] = []
         self._last_title = ""
         self._preview_started = False
@@ -30,7 +43,7 @@ class MainWindow(QMainWindow):
         self._toolbar_dragging = False
         self._window_moving = False
         self._screen_wh = tuple(screen_wh) if screen_wh else None
-        self.picking_coord = False
+        self.interaction_mode = MODE_GESTURE
         self.cursor_pos: QPoint | None = None
 
         self.setWindowTitle("AirPicker")
@@ -43,9 +56,14 @@ class MainWindow(QMainWindow):
             self.resize(MAX_W, MAX_H)
 
         self.toolbar = FloatingToolbar()
+        self.toolbar.main_window = self
+        self.toolbar.set_horizontal(settings.get_toolbar_horizontal(settings.load_settings()))
         self.toolbar.drag_state_changed = self.set_toolbar_dragging
         self.toolbar.settings_clicked = self.open_toolbar_settings
+        self.toolbar.select_clicked = self.start_select_mode
         self.toolbar.coord_clicked = self.start_pick_coord
+        self.toolbar.back_clicked = self.device_back
+        self.toolbar.home_clicked = self.device_home
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.on_frame)
@@ -55,16 +73,107 @@ class MainWindow(QMainWindow):
 
         method = getattr(getattr(device, "screen_proxy", None), "method_name", "MINICAP")
         print(f"[信息] 设备连接成功（{method}）")
+        print("[信息] 默认模式：单击=点击设备，拖拽=滑动设备；工具栏可切换框选 / 取点")
+
+    @property
+    def picking_coord(self) -> bool:
+        return self.interaction_mode == MODE_PICK_COORD
+
+    # -------- 交互模式 --------
+    def set_interaction_mode(self, mode: str) -> None:
+        """切换模式，并清理上一模式的残留状态。"""
+        self.cancel_selection()
+        self.cancel_gesture()
+        self.interaction_mode = mode
+        if mode == MODE_PICK_COORD:
+            self.screen.setCursor(Qt.CrossCursor)
+            self.setWindowTitle("AirPicker · 取点模式：单击画面获取坐标，右键取消")
+        elif mode == MODE_SELECT:
+            self.screen.setCursor(Qt.CrossCursor)
+            self.setWindowTitle("AirPicker · 框选模式：拖拽框选模板，右键取消")
+        else:
+            self.screen.unsetCursor()
+            self._last_title = ""
+            self._update_title()
+
+    def reset_interaction_mode(self) -> None:
+        self.set_interaction_mode(MODE_GESTURE)
+
+    def start_select_mode(self) -> None:
+        if self.latest_bgr is None:
+            print("[提示] 画面尚未就绪，暂时无法框选")
+            return
+        self.set_interaction_mode(MODE_SELECT)
+
+    # -------- 鼠标模拟触控 / 滑动 --------
+    def begin_gesture(self, pos: QPoint) -> None:
+        self.gesture_start = pos
+        self.gesture_end = pos
+        self.gesturing = True
+        self.screen.update()
+
+    def update_gesture(self, pos: QPoint) -> None:
+        if not self.gesturing:
+            return
+        self.gesture_end = pos
+        self.screen.update()
+
+    def finish_gesture(self, pos: QPoint) -> None:
+        if not self.gesturing or self.gesture_start is None:
+            self.cancel_gesture()
+            return
+        start = self.gesture_start
+        self.cancel_gesture()
+        if (pos - start).manhattanLength() < TAP_SLOP:
+            self._tap_device(self.to_source(start))
+        else:
+            self._swipe_device(self.to_source(start), self.to_source(pos))
+
+    def cancel_gesture(self) -> None:
+        self.gesturing = False
+        self.gesture_start = self.gesture_end = None
+        self.screen.update()
+
+    def _tap_device(self, pos: tuple[int, int]) -> None:
+        try:
+            self.device.touch(pos)
+            print(f"[手势] 点击设备 {pos}")
+        except Exception as exc:
+            print(f"[警告] 模拟点击失败：{exc}")
+
+    def _swipe_device(self, start: tuple[int, int], end: tuple[int, int]) -> None:
+        try:
+            self.device.swipe(start, end, duration=SWIPE_DURATION)
+            print(f"[手势] 滑动设备 {start} -> {end}")
+        except Exception as exc:
+            print(f"[警告] 模拟滑动失败：{exc}")
+
+    # -------- 设备按键 --------
+    def device_back(self) -> None:
+        self._send_key("BACK", "返回")
+
+    def device_home(self) -> None:
+        self._send_key("HOME", "主页")
+
+    def _send_key(self, key: str, label: str) -> None:
+        try:
+            self.device.keyevent(key)
+            print(f"[按键] {label}")
+        except Exception as exc:
+            print(f"[警告] {label}失败：{exc}")
 
     def open_toolbar_settings(self) -> None:
         dialog = ToolbarSettingsDialog(self.toolbar.is_horizontal(), self)
         if dialog.exec() == QDialog.Accepted:
-            self.toolbar.set_horizontal(dialog.is_horizontal())
-            if self.toolbar.is_horizontal():
+            horizontal = dialog.is_horizontal()
+            self.toolbar.set_horizontal(horizontal)
+            settings.save_toolbar_horizontal(horizontal)
+            if horizontal:
                 self.toolbar.move(
                     self.x() + self.width() - self.toolbar.width() - 20,
                     self.y() + 60,
                 )
+            self.toolbar.constrain_to_window()
 
     def start(self) -> None:
         self._preview_started = True
@@ -96,6 +205,13 @@ class MainWindow(QMainWindow):
             self.set_preview_paused(True)
             self._move_resume_timer.start(200)
         super().moveEvent(event)
+        if hasattr(self, "toolbar"):
+            self.toolbar.follow_window()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if hasattr(self, "toolbar"):
+            self.toolbar.constrain_to_window()
 
     def _aspect_size(self, w: int, h: int) -> tuple[int, int]:
         scale = min(MAX_W / w, MAX_H / h)
@@ -143,7 +259,7 @@ class MainWindow(QMainWindow):
         return int((len(self.frame_times) - 1) / span) if span > 0 else 0
 
     def _update_title(self) -> None:
-        if self.latest_bgr is None:
+        if self.latest_bgr is None or self.interaction_mode != MODE_GESTURE:
             return
         h, w = self.latest_bgr.shape[:2]
         pm = self.screen.pixmap()
@@ -183,6 +299,7 @@ class MainWindow(QMainWindow):
         self.dragging = False
         self.screen.update()
         self.save_template()
+        self.reset_interaction_mode()
 
     def cancel_selection(self) -> None:
         self.dragging = False
@@ -213,15 +330,10 @@ class MainWindow(QMainWindow):
         if self.latest_bgr is None:
             print("[提示] 画面尚未就绪，暂时无法取点")
             return
-        self.picking_coord = True
-        self.screen.setCursor(Qt.CrossCursor)
-        self.setWindowTitle("AirPicker · 取点模式：单击画面获取坐标，右键取消")
+        self.set_interaction_mode(MODE_PICK_COORD)
 
     def cancel_pick_coord(self) -> None:
-        self.picking_coord = False
-        self.screen.unsetCursor()
-        self._last_title = ""
-        self._update_title()
+        self.reset_interaction_mode()
 
     def pick_coord(self, pos: QPoint) -> None:
         x, y = self.to_source(pos)

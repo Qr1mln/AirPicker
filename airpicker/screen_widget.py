@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""实时投屏画面显示：框选、取点、鼠标实时坐标标签。"""
+"""实时投屏画面显示：模式化鼠标交互、框选、取点与实时坐标标签。"""
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -8,12 +8,19 @@ from PySide6.QtCore import QRect, Qt
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QLabel
 
+from .config import MODE_GESTURE, MODE_PICK_COORD, MODE_SELECT
+
 if TYPE_CHECKING:
     from .main_window import MainWindow
 
 
 class ScreenWidget(QLabel):
-    """实时画面显示，左键拖拽框选、右键取消。"""
+    """实时画面显示，按当前交互模式分发鼠标事件。
+
+    - 默认：单击模拟设备点击，拖拽模拟设备滑动；
+    - 框选模式：左键拖拽框选模板，右键取消；
+    - 取点模式：单击获取设备坐标，右键取消（触控 / 滑动失效）。
+    """
 
     def __init__(self, parent: "MainWindow"):
         super().__init__(parent)
@@ -23,24 +30,33 @@ class ScreenWidget(QLabel):
         self.setMinimumSize(200, 300)
 
     def mousePressEvent(self, event) -> None:
-        if self.app.picking_coord:
+        mode = self.app.interaction_mode
+        if mode == MODE_PICK_COORD:
             if event.button() == Qt.LeftButton:
                 self.app.pick_coord(event.position().toPoint())
             elif event.button() == Qt.RightButton:
                 self.app.cancel_pick_coord()
             return
+        if mode == MODE_SELECT:
+            if event.button() == Qt.LeftButton:
+                self.app.begin_selection(event.position().toPoint())
+            elif event.button() == Qt.RightButton:
+                self.app.cancel_selection()
+            return
         if event.button() == Qt.LeftButton:
-            self.app.begin_selection(event.position().toPoint())
-        elif event.button() == Qt.RightButton:
-            self.app.cancel_selection()
+            self.app.begin_gesture(event.position().toPoint())
 
     def mouseMoveEvent(self, event) -> None:
         pos = event.position().toPoint()
         self.app.cursor_pos = pos
         self.update()
-        if self.app.picking_coord:
+        mode = self.app.interaction_mode
+        if mode == MODE_PICK_COORD:
             return
-        self.app.update_selection(pos)
+        if mode == MODE_SELECT:
+            self.app.update_selection(pos)
+        else:
+            self.app.update_gesture(pos)
 
     def leaveEvent(self, event) -> None:
         self.app.cursor_pos = None
@@ -48,18 +64,35 @@ class ScreenWidget(QLabel):
         super().leaveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:
-        if self.app.picking_coord:
+        if event.button() != Qt.LeftButton:
             return
-        if event.button() == Qt.LeftButton:
-            self.app.finish_selection(event.position().toPoint())
+        pos = event.position().toPoint()
+        mode = self.app.interaction_mode
+        if mode == MODE_PICK_COORD:
+            return
+        if mode == MODE_SELECT:
+            self.app.finish_selection(pos)
+        else:
+            self.app.finish_gesture(pos)
 
     def paintEvent(self, event) -> None:
         super().paintEvent(event)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
+        if (
+            self.app.interaction_mode == MODE_GESTURE
+            and self.app.gesturing
+            and self.app.gesture_start is not None
+            and self.app.gesture_end is not None
+            and self.app.gesture_start != self.app.gesture_end
+        ):
+            painter.setPen(QPen(QColor(255, 200, 60, 190), 2))
+            painter.drawLine(self.app.gesture_start, self.app.gesture_end)
         if self.app.dragging and self.app.drag_start and self.app.drag_end:
             rect = QRect(self.app.drag_start, self.app.drag_end).normalized()
-            painter.setPen(QPen(QColor(40, 167, 69), 2))
+            pen = QPen(QColor(40, 167, 69), 4)
+            pen.setStyle(Qt.DashLine)
+            painter.setPen(pen)
             painter.setBrush(Qt.transparent)
             painter.drawRect(rect)
         pos = self.app.cursor_pos
