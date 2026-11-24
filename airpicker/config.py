@@ -3,7 +3,7 @@
 from pathlib import Path
 
 # -------------------------------- 设备 --------------------------------
-# 连接参数已迁移到 settings.json 的 connection 段（设置弹窗「设备连接」页）。
+# 连接参数已迁移到 config/settings.json 的 connection 段（设置弹窗「设备连接」页）。
 # 以下两个常量仅作历史参考，device.build_uri() 不再读取它们。
 SERIAL = ""
 DEVICE_URI = "Android:///?cap_method=MINICAP&touch_method=MINITOUCH"
@@ -32,6 +32,7 @@ TAP_SLOP = 6          # 鼠标位移小于该像素视为点击，否则视为�
 SWIPE_DURATION = 0.3  # 模拟滑动持续时间（秒）
 
 ROOT = Path(__file__).resolve().parent.parent
+CONFIG_DIR = ROOT / "config"      # 配置文件目录（settings.json / ai_settings.json）
 PICS_DIR = ROOT / "pics"
 SCRIPTS_DIR = ROOT / "scripts"
 SCREENSHOT_DIR = ROOT / "screenshots"

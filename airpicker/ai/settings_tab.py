@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""AI 设置页：由主设置弹窗挂载，读写 ai_settings.json。"""
+"""AI 设置页：由主设置弹窗挂载，读写 config/ai_settings.json。"""
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
@@ -9,12 +9,14 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QLabel,
     QLineEdit,
+    QPlainTextEdit,
     QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 
 from . import config
+from .config import DEFAULT_ANALYZE_PROMPT, DEFAULT_MATCH_PROMPT
 
 
 class AISettingsTab(QWidget):
@@ -67,12 +69,32 @@ class AISettingsTab(QWidget):
         self.retry_temperature_spin.setValue(float(cfg["retry_temperature"]))
         form.addRow("重试温度", self.retry_temperature_spin)
 
-        hint = QLabel("配置保存在 ai_settings.json；识别时截图当前帧并交给模型分析，结果写入状态日志。")
+        hint = QLabel("配置保存在 config/ai_settings.json；识别时截图当前帧并交给模型分析，结果写入状态日志。")
         hint.setStyleSheet("color: #888; font-size: 11px;")
         hint.setWordWrap(True)
         form.addRow("", hint)
 
         root.addWidget(group)
+
+        prompt_group = QGroupBox("提示词")
+        prompt_form = QFormLayout(prompt_group)
+        prompt_form.setLabelAlignment(Qt.AlignRight | Qt.AlignTop)
+        prompt_form.setHorizontalSpacing(12)
+        prompt_form.setVerticalSpacing(8)
+
+        self.analyze_prompt_edit = QPlainTextEdit(cfg["analyze_prompt"])
+        self.analyze_prompt_edit.setPlaceholderText("完整提示词文本，截图作为图片附件随提示词发送；清空并保存后恢复默认")
+        self.analyze_prompt_edit.setMinimumHeight(72)
+        prompt_form.addRow("识别提示词", self.analyze_prompt_edit)
+
+        self.match_prompt_edit = QPlainTextEdit(cfg["match_prompt"])
+        self.match_prompt_edit.setPlaceholderText(
+            "变量 {analysis}=识别结果，{hint}=补充线索，{scenes}=候选场景列表；清空并保存后恢复默认"
+        )
+        self.match_prompt_edit.setMinimumHeight(120)
+        prompt_form.addRow("匹配提示词", self.match_prompt_edit)
+
+        root.addWidget(prompt_group)
         root.addStretch(1)
 
         self.api_url_edit.textChanged.connect(self._save)
@@ -81,6 +103,8 @@ class AISettingsTab(QWidget):
         self.timeout_spin.valueChanged.connect(self._save)
         self.temperature_spin.valueChanged.connect(self._save)
         self.retry_temperature_spin.valueChanged.connect(self._save)
+        self.analyze_prompt_edit.textChanged.connect(self._save)
+        self.match_prompt_edit.textChanged.connect(self._save)
 
     def _save(self) -> None:
         config.save(
@@ -90,4 +114,6 @@ class AISettingsTab(QWidget):
             timeout=self.timeout_spin.value(),
             temperature=self.temperature_spin.value(),
             retry_temperature=self.retry_temperature_spin.value(),
+            analyze_prompt=self.analyze_prompt_edit.toPlainText().strip() or DEFAULT_ANALYZE_PROMPT,
+            match_prompt=self.match_prompt_edit.toPlainText().strip() or DEFAULT_MATCH_PROMPT,
         )

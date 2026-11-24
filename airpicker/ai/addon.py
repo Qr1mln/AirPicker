@@ -8,7 +8,7 @@ from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, QThread, QTimer,
 from PySide6.QtWidgets import QDockWidget
 
 from . import config
-from .api import ANALYZE_QUESTION, MatchWorker, RecognitionWorker
+from .api import MatchWorker, RecognitionWorker
 from .panel import AIPanel
 
 
@@ -20,6 +20,7 @@ class AIAddon(QObject):
         self.window = window
         self._worker: QThread | None = None
         self._last_analysis = ""
+        self._pending_scenes: list[dict[str, str]] | None = None
         self._visible_pref = bool(config.load()["panel_visible"])
         self._setting_visibility = False
         self._restoring_state = False
@@ -148,7 +149,7 @@ class AIAddon(QObject):
             return
         cfg = config.load()
         worker = RecognitionWorker(
-            frame.copy(), ANALYZE_QUESTION,
+            frame.copy(),
             cfg["api_url"], cfg["model"], cfg["timeout"], cfg["api_token"],
             cfg["temperature"], cfg["retry_temperature"], self,
         )
@@ -175,13 +176,33 @@ class AIAddon(QObject):
     def start_matching(self) -> None:
         if self._worker is not None and self._worker.isRunning():
             return
-        if not self._last_analysis:
-            self.panel.append_log("[提示] 请先点击「识别界面」获取界面元素信息")
-            return
         scenes = self._scenes_from_table()
         if not scenes:
             self.panel.append_log("[提示] 场景配置为空，请填写场景名称和描述")
             return
+        frame = self.window._screenshot_frame()
+        if frame is None:
+            self.panel.append_log("[识别失败] 暂无画面，无法识别界面")
+            return
+        cfg = config.load()
+        self._pending_scenes = scenes
+        worker = RecognitionWorker(
+            frame.copy(),
+            cfg["api_url"], cfg["model"], cfg["timeout"], cfg["api_token"],
+            cfg["temperature"], cfg["retry_temperature"], self,
+        )
+        worker.prompt_ready.connect(lambda text: self._log_prompt("界面识别", text))
+        worker.result_ready.connect(self._on_analyzed)
+        worker.failed.connect(self._on_failed)
+        worker.finished.connect(self._on_finished)
+        self._worker = worker
+        self.panel.recognize_button.setEnabled(False)
+        self.panel.match_button.setEnabled(False)
+        self.panel.match_button.setText("识别中…")
+        self.panel.append_log("已截取当前帧，正在重新识别界面后匹配场景…")
+        worker.start()
+
+    def _run_match(self, scenes: list[dict[str, str]]) -> None:
         cfg = config.load()
         worker = MatchWorker(
             self._last_analysis, scenes,
@@ -195,7 +216,7 @@ class AIAddon(QObject):
         self._worker = worker
         self.panel.match_button.setEnabled(False)
         self.panel.match_button.setText("匹配中…")
-        self.panel.append_log("正在用场景配置和界面识别结果匹配场景…")
+        self.panel.append_log("界面识别完成，正在用场景配置匹配场景…")
         worker.start()
 
     def _on_matched(self, scene: str, elapsed: float) -> None:
@@ -207,14 +228,20 @@ class AIAddon(QObject):
         self.panel.append_log(f"[{title}提示词]\n{prompt}\n{'-' * 28}")
 
     def _on_failed(self, message: str) -> None:
+        self._pending_scenes = None
         self.panel.append_log(f"[识别失败] {message}")
 
     def _on_finished(self) -> None:
-        self.panel.recognize_button.setText("识别界面")
-        self.panel.recognize_button.setEnabled(True)
-        self.panel.match_button.setText("匹配场景")
-        self.panel.match_button.setEnabled(True)
+        pending = self._pending_scenes
         worker = self._worker
         self._worker = None
         if worker is not None:
             worker.deleteLater()
+        if pending is not None:
+            self._pending_scenes = None
+            self._run_match(pending)
+            return
+        self.panel.recognize_button.setText("识别界面")
+        self.panel.recognize_button.setEnabled(True)
+        self.panel.match_button.setText("匹配场景")
+        self.panel.match_button.setEnabled(True)

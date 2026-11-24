@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""AI 模块独立配置：读写项目根目录 ai_settings.json，不依赖主程序 settings。"""
+"""AI 模块独立配置：读写 config/ai_settings.json，不依赖主程序 settings。"""
 from __future__ import annotations
 
 import json
@@ -7,15 +7,32 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from ..config import ROOT
+from ..config import CONFIG_DIR
 
-CONFIG_PATH = ROOT / "ai_settings.json"
+CONFIG_PATH = CONFIG_DIR / "ai_settings.json"
 
 DEFAULT_SCENES: list[dict[str, str]] = [
     {"name": "reward_dialog", "desc": "有立即领取/恭喜获得字样的活动弹窗"},
     {"name": "taobao_app", "desc": "淘宝商品页，底部有首页/购物车/我的淘宝"},
     {"name": "main_screen", "desc": "游戏主界面，无弹窗"},
 ]
+
+DEFAULT_ANALYZE_PROMPT = (
+    "这是一张手机屏幕截图。请识别画面中的可见元素（文字、按钮、图标），"
+    "按画面从左到右、从上到下的顺序输出 JSON 数组，"
+    "每项格式：{\"index\":顺序号,\"text\":\"元素文字\",\"type\":\"文字|按钮|图标\"}。"
+    "只输出 JSON 数组，不要输出任何解释。"
+)
+LEGACY_QUESTION = "请描述当前画面内容，列出可见的文字和按钮。"
+DEFAULT_MATCH_PROMPT = (
+    "上一步的界面识别结果：\n"
+    "{analysis}\n\n"
+    "用户补充线索：{hint}\n\n"
+    "候选场景（名称：描述）：\n{scenes}\n\n"
+    "规则：只有当候选场景描述中的关键文字在识别结果里明确出现时才能选择，"
+    "不要仅凭语义猜测。若多个候选场景的关键文字都出现，选择命中文字最多、描述最具体的场景。"
+    "名称必须原样从候选里选；都不符合输出 none。只输出场景名，不要解释。"
+)
 
 DEFAULTS: dict[str, Any] = {
     "panel_visible": False,
@@ -25,6 +42,8 @@ DEFAULTS: dict[str, Any] = {
     "timeout": 30,
     "temperature": 0.2,
     "retry_temperature": 0.6,
+    "analyze_prompt": DEFAULT_ANALYZE_PROMPT,
+    "match_prompt": DEFAULT_MATCH_PROMPT,
     "scenes": deepcopy(DEFAULT_SCENES),
     "scene_columns": [140, 420],
     "splitter_sizes": [420, 260],
@@ -63,6 +82,12 @@ def load() -> dict[str, Any]:
         value = raw.get(key)
         if isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value <= 2:
             config[key] = float(value)
+    for key, default in (("analyze_prompt", DEFAULT_ANALYZE_PROMPT), ("match_prompt", DEFAULT_MATCH_PROMPT)):
+        value = raw.get(key)
+        if isinstance(value, str) and value.strip():
+            config[key] = value.replace("{question}", LEGACY_QUESTION).strip()
+        else:
+            config[key] = default
     raw_scenes = raw.get("scenes")
     if isinstance(raw_scenes, list):
         scenes: list[dict[str, str]] = []
@@ -101,6 +126,7 @@ def save(**updates: Any) -> None:
     config = load()
     config.update(updates)
     try:
+        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         CONFIG_PATH.write_text(
             json.dumps(config, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",

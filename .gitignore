@@ -5,6 +5,6 @@ __pycache__/
 /pics/
 /logs/
 .merkle-snapshot.json
-/settings.json
-/ai_settings.json
+/config/settings.json
+/config/ai_settings.json
 /screenshots/

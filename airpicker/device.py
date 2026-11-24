@@ -11,7 +11,7 @@ from .connection import build_uri as build_android_uri
 
 
 def build_uri() -> str:
-    """按 settings.json 中的 Android 连接配置构造 Airtest URI。"""
+    """按 config/settings.json 中的 Android 连接配置构造 Airtest URI。"""
     return build_android_uri(app_settings.get_connection(app_settings.load_settings()))
 
 

@@ -60,7 +60,7 @@ AirPicker 就是为此设计的，核心闭环：
 - **全屏截图**：点击相机按钮按设备原图分辨率保存整屏 PNG 到独立目录，画面闪光 + 绿色提示确认。
 - **悬浮工具栏**：黑色面板 + 白色线性图标，可拖拽、可横竖切换，带悬停 / 按下 / 刷新旋转动画。
 - **连接自愈**：ADB 连接失败时自动强制结束 `adb.exe` 并重启 ADB Server 重试一次。
-- **设置持久化**：Android 连接协议参数、自动连接、工具栏方向、资源 / 项目目录、回写表达式、窗口大小等保存在 `settings.json`。
+- **设置持久化**：Android 连接协议参数、自动连接、工具栏方向、资源 / 项目目录、回写表达式、窗口大小等保存在 `config/settings.json`。
 
 ![工具栏参考](docs/工具栏参考.png)
 
@@ -118,7 +118,7 @@ adb devices
 
 输出中应出现设备序列号且状态为 `device`（不是 `unauthorized` / `offline`）。
 
-多设备时，在设置弹窗「设备连接」页填写目标设备序列号（保存到 `settings.json` 的 `connection.serial`）。
+多设备时，在设置弹窗「设备连接」页填写目标设备序列号（保存到 `config/settings.json` 的 `connection.serial`）。
 
 ### 4. 验证安装
 
@@ -185,7 +185,7 @@ uv run pyinstaller --noconfirm --onefile --windowed main.py -n AirPicker
 
 程序启动时不连接设备。点击工具栏齿轮打开设置，切换到「设备连接」页；也可以直接点工具栏的链环按钮，按当前配置立即连接：
 
-- **连接设置**：显示当前状态并提供「连接设备」/「断开」按钮；连接过程在后台线程执行，界面不会卡住。断开会停止投屏并释放 Airtest 的推流 / 触控资源，画面回到「未连接设备」提示。勾选「启动界面加载完成后自动连接设备」后，每次启动都会在界面加载完成后自动尝试连接（勾选即时保存到 `settings.json`）。
+- **连接设置**：显示当前状态并提供「连接设备」/「断开」按钮；连接过程在后台线程执行，界面不会卡住。断开会停止投屏并释放 Airtest 的推流 / 触控资源，画面回到「未连接设备」提示。勾选「启动界面加载完成后自动连接设备」后，每次启动都会在界面加载完成后自动尝试连接（勾选即时保存到 `config/settings.json`）。
 - **Android 连接参数**：按 Airtest 的 Android URI 协议配置，界面只展示 Android。其中「连接方式」是单选预设，选「推荐 / 兼容 / 截图兼容」会自动填好截图方式（`cap_method`）、触控方式（`touch_method`）、输入方式（`ime_method`）、屏幕方向（`ori_method`）；选「自定义」才展开这 4 个下拉逐项设置。另有设备序列号、ADB 地址/端口，以及高级项 `display_id` / `input_event` / `adb_path`。修改任意项后下方实时显示最终连接 URI，例如：
 
 ```text
@@ -298,7 +298,7 @@ Template(r"{path}", record_pos=({rx}, {ry}), resolution=({rw}, {rh}))
 | 锁定画面比例 | 缩放窗口时是否按设备比例联动宽高 |
 | 窗口大小 | 自动记忆，下次启动恢复 |
 
-所有设置保存到项目根目录 `settings.json`，文件缺失或损坏时自动回退默认值。
+所有设置保存到 `config/settings.json`，文件缺失或损坏时自动回退默认值。
 
 ---
 
@@ -356,7 +356,7 @@ assert_exists(Template(r"../pics/tpl_success.png", record_pos=(0.0, 0.2), resolu
 | --- | --- | --- |
 | `MINICAP_QUALITY` | MINICAP 画质（1~100） | `100` |
 
-> 设备连接参数（原 `SERIAL` / `DEVICE_URI`）已迁移到 `settings.json` 的 `connection` 段，在设置弹窗「设备连接」页配置；`config.py` 中的同名常量仅作历史参考，不再生效。
+> 设备连接参数（原 `SERIAL` / `DEVICE_URI`）已迁移到 `config/settings.json` 的 `connection` 段，在设置弹窗「设备连接」页配置；`config.py` 中的同名常量仅作历史参考，不再生效。
 | `MAX_W` / `MAX_H` | 窗口最大宽高 | `1280` / `1200` |
 | `DISPLAY_SHARPEN` | 显示锐化 | `True` |
 | `FPS` | 投屏帧率 | `30` |
@@ -430,7 +430,9 @@ Android:///?cap_method=JAVACAP&touch_method=MINITOUCH
 ```text
 AirPicker/
 ├── main.py                             PyCharm 入口
-├── settings.json                       界面与路径设置
+├── config/                             配置目录
+│   ├── settings.json                   界面与路径设置
+│   └── ai_settings.json                AI 面板设置
 ├── pyproject.toml / uv.lock             uv 项目元数据与锁定依赖
 ├── airpicker/                           Python 包
 │   ├── __main__.py                     启动入口（python -m airpicker）

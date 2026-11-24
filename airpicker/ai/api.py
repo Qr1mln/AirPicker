@@ -15,11 +15,8 @@ import cv2
 import numpy as np
 from PySide6.QtCore import QThread, Signal
 
-DEFAULT_QUESTION = "请描述当前画面内容，列出可见的文字和按钮。"
-ANALYZE_QUESTION = (
-    "请描述当前画面内容，逐条列出可见的文字和按钮，"
-    "包括数字、时间、阶段名称和分区标题；按画面顺序列出，不要输出 JSON 或额外解释。"
-)
+from . import config
+
 MAX_TOKENS = 800
 IMAGE_WIDTH = 720
 RETRY_IMAGE_WIDTH = 540
@@ -152,16 +149,13 @@ def _chat(
     raise last_error or RuntimeError("模型输出异常，请重试")
 
 
-def build_analyze_prompt(question: str) -> str:
-    return (
-        f"这是一张手机屏幕截图。{question.strip() or DEFAULT_QUESTION}\n"
-        "请直接用中文回答，不要输出 JSON 或额外解释。"
-    )
+def build_analyze_prompt() -> str:
+    """识别提示词即完整文本，截图作为图片附件随提示词发送。"""
+    return config.load()["analyze_prompt"]
 
 
 def ask(
     frame: np.ndarray,
-    question: str,
     api_url: str,
     model: str,
     timeout: float = 30,
@@ -169,9 +163,9 @@ def ask(
     temperature: float = 0.2,
     retry_temperature: float = 0.6,
 ) -> str:
-    """把单帧截图和问题发给 VLM，返回模型文本。失败时抛异常。"""
+    """把单帧截图和识别提示词发给 VLM，返回模型文本。失败时抛异常。"""
     return _chat(
-        build_analyze_prompt(question), frame, api_url, model, timeout, token,
+        build_analyze_prompt(), frame, api_url, model, timeout, token,
         temperature, retry_temperature,
     )
 
@@ -232,14 +226,42 @@ def locate(
     return parse_point(answer, (w, h))
 
 
-def _scene_local_score(analysis: str, desc: str) -> int:
-    """统计场景描述中的文字片段在界面分析结果里明确出现了多少。"""
-    text = re.sub(r"\s+", "", analysis)
-    score = 0
+def _parse_elements(analysis: str) -> list[str]:
+    """识别结果为 JSON 元素列表时提取元素文字；解析失败则整段文本当作单个元素。"""
+    cleaned = analysis.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned).strip()
+    fallback = [re.sub(r"\s+", "", analysis)]
+    try:
+        data = json.loads(cleaned)
+    except (ValueError, TypeError):
+        return fallback
+    if not isinstance(data, list):
+        return fallback
+    texts = []
+    for item in data:
+        if isinstance(item, dict):
+            text = item.get("text")
+            if isinstance(text, str) and text.strip():
+                texts.append(re.sub(r"\s+", "", text))
+    return texts or fallback
+
+
+def _scene_weight_score(elements: list[str], desc: str) -> float:
+    """场景描述片段可用 *权重 标注（默认1），片段在识别元素中出现则累加权重分。"""
+    score = 0.0
     for part in re.split(r"[\n\r，,。；;、/|]+", desc):
-        fragment = re.sub(r"\s+", "", part.strip())
-        if len(fragment) >= 2 and fragment in text:
-            score += len(fragment)
+        fragment = part.strip()
+        if not fragment:
+            continue
+        weight = 1.0
+        match = re.search(r"\*(\d+(?:\.\d+)?)\s*$", fragment)
+        if match:
+            weight = float(match.group(1))
+            fragment = fragment[: match.start()].rstrip()
+        compact = re.sub(r"\s+", "", fragment)
+        if len(compact) >= 2 and any(compact in text for text in elements):
+            score += weight
     return score
 
 
@@ -251,13 +273,12 @@ def build_match_prompt(
     lines = "\n".join(
         f"- {item['name']}：{item['desc']}" for item in scenes if item.get("name")
     )
+    template = config.load()["match_prompt"]
     return (
-        "上一步的界面识别结果：\n"
-        f"{analysis.strip()}\n\n"
-        f"用户补充线索：{hint.strip() or '无'}\n\n"
-        f"候选场景（名称：描述）：\n{lines}\n\n"
-        "规则：只有当候选场景描述中的关键文字在识别结果里明确出现时才能选择，"
-        "不要仅凭语义猜测。名称必须原样从候选里选；都不符合输出 none。只输出场景名，不要解释。"
+        template
+        .replace("{analysis}", analysis.strip())
+        .replace("{hint}", hint.strip() or "无")
+        .replace("{scenes}", lines)
     )
 
 
@@ -278,8 +299,9 @@ def match_scene(
     )
     cleaned = answer.strip().strip("`\"'。 ")
 
+    elements = _parse_elements(analysis)
     scores = {
-        item["name"]: _scene_local_score(analysis, item.get("desc", ""))
+        item["name"]: _scene_weight_score(elements, item.get("desc", ""))
         for item in scenes if item.get("name")
     }
     picked = ""
@@ -292,9 +314,11 @@ def match_scene(
             if name.lower() in cleaned.lower():
                 picked = name
                 break
-    if picked and scores.get(picked, 0) > 0:
-        return picked
     best_name, best_score = max(scores.items(), key=lambda kv: kv[1], default=("", 0))
+    if picked and scores.get(picked, 0) > 0:
+        if best_name != picked and best_score > scores.get(picked, 0):
+            return best_name
+        return picked
     return best_name if best_score > 0 else ""
 
 
@@ -308,7 +332,6 @@ class RecognitionWorker(QThread):
     def __init__(
         self,
         frame: np.ndarray,
-        question: str,
         api_url: str,
         model: str,
         timeout: float,
@@ -319,7 +342,6 @@ class RecognitionWorker(QThread):
     ):
         super().__init__(parent)
         self._frame = frame
-        self._question = question
         self._api_url = api_url
         self._model = model
         self._timeout = timeout
@@ -329,10 +351,10 @@ class RecognitionWorker(QThread):
 
     def run(self) -> None:
         started = time.perf_counter()
-        self.prompt_ready.emit(build_analyze_prompt(self._question))
+        self.prompt_ready.emit(build_analyze_prompt())
         try:
             answer = ask(
-                self._frame, self._question, self._api_url, self._model,
+                self._frame, self._api_url, self._model,
                 self._timeout, self._token, self._temperature, self._retry_temperature,
             )
         except Exception as exc:

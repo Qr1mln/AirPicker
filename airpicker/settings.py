@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""应用设置持久化：项目根目录 settings.json。"""
+"""应用设置持久化：config/settings.json。"""
 from __future__ import annotations
 
 import json
@@ -7,7 +7,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from .config import PICS_DIR, ROOT, SCRIPTS_DIR, SCREENSHOT_DIR
+from .config import CONFIG_DIR, PICS_DIR, ROOT, SCRIPTS_DIR, SCREENSHOT_DIR
 from .connection import DEFAULT_CONNECTION, normalize as normalize_connection
 from .screenshot_names import (
     DEFAULT_RANDOM_EXPR,
@@ -16,7 +16,7 @@ from .screenshot_names import (
     SCREENSHOT_NAME_SEQUENCE,
 )
 
-SETTINGS_PATH = ROOT / "settings.json"
+SETTINGS_PATH = CONFIG_DIR / "settings.json"
 
 DEFAULT_COORD_EXPR = "({x}, {y})"
 DEFAULT_TPL_EXPR = 'Template(r"{path}", record_pos=({rx}, {ry}), resolution=({rw}, {rh}))'
@@ -207,6 +207,7 @@ def get_swipe_expr(settings: dict[str, Any]) -> str:
 
 def _write_settings(settings: dict[str, Any]) -> None:
     try:
+        SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
         SETTINGS_PATH.write_text(
             json.dumps(settings, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",

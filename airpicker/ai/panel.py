@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (
     QDockWidget,
     QFormLayout,
     QFrame,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -21,7 +20,6 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
-    QRadioButton,
     QTextEdit,
     QToolButton,
     QVBoxLayout,
@@ -38,10 +36,7 @@ _DOCK_STYLE = (
 
 _PANE_STYLE = (
     "QWidget { background: #1e1e1e; color: #dddddd; }"
-    "QGroupBox { color: #dddddd; border: 1px solid #3a3a3a; border-radius: 6px; "
-    "margin-top: 10px; padding-top: 10px; }"
-    "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }"
-    "QRadioButton, QLabel { color: #dddddd; }"
+    "QLabel { color: #dddddd; }"
     "QLineEdit, QTextEdit, QPlainTextEdit, QListWidget { background: #2b2b2b; color: #dddddd; "
     "border: 1px solid #3a3a3a; border-radius: 4px; }"
     "QPushButton { background: #2b2b2b; color: #dddddd; border: 1px solid #3a3a3a; "
@@ -114,15 +109,6 @@ class AIPanel(QObject):
         pane = self._pane(self.recognize_dock)
         layout = pane.layout()
 
-        mode = QGroupBox("工作模式")
-        mode_layout = QVBoxLayout(mode)
-        mode_layout.setContentsMargins(10, 6, 10, 8)
-        mode_layout.setSpacing(4)
-        manual = QRadioButton("手动操作")
-        manual.setChecked(True)
-        mode_layout.addWidget(manual)
-        layout.addWidget(mode)
-
         self.recognize_button = QPushButton("识别界面")
         self.recognize_button.setToolTip("分析当前画面，返回可见的界面元素信息")
         layout.addWidget(self.recognize_button)
@@ -142,12 +128,6 @@ class AIPanel(QObject):
     def _build_scene_pane(self) -> None:
         pane = self._pane(self.scene_dock)
         layout = pane.layout()
-
-        cruise_button = QPushButton("自动巡航（预留）")
-        cruise_button.setObjectName("sceneActionButton")
-        cruise_button.setEnabled(False)
-        cruise_button.setToolTip("P2 阶段接入")
-        layout.addWidget(cruise_button)
 
         self.scene_list = QListWidget()
         self.scene_list.setObjectName("sceneList")
@@ -265,6 +245,10 @@ class AIPanel(QObject):
         name_edit = QLineEdit(scene.get("name", "") if scene else "")
         desc_edit = QPlainTextEdit()
         desc_edit.setPlainText(scene.get("desc", "") if scene else "")
+        desc_edit.setPlaceholderText(
+            "每行一个关键文字片段；可在行尾标注权重参与匹配打分：\n"
+            "已发放*8\n直播中\n进入直播间（未标注默认权重 1）"
+        )
         form.addRow("场景名", name_edit)
         form.addRow("描述", desc_edit)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
