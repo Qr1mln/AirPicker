@@ -68,6 +68,8 @@ class GestureMixin:
         self.screen.update()
 
     def _tap_device(self, pos: tuple[int, int]) -> None:
+        if not self._require_device():
+            return
         try:
             self.device.touch(pos)
             print(f"[手势] 点击设备 {pos}")
@@ -75,6 +77,8 @@ class GestureMixin:
             print(f"[警告] 模拟点击失败：{exc}")
 
     def _swipe_device(self, start: tuple[int, int], end: tuple[int, int]) -> None:
+        if not self._require_device():
+            return
         try:
             self.device.swipe(start, end, duration=SWIPE_DURATION)
             print(f"[手势] 滑动设备 {start} -> {end}")

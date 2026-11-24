@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """主窗口交互能力 Mixin 包。"""
 from .coords import CoordPickMixin
+from .device_connection import DeviceConnectionMixin
 from .device_keys import DeviceKeyMixin
 from .gesture import GestureMixin
 from .modes import InteractionModeMixin
@@ -13,6 +14,7 @@ __all__ = [
     "GestureMixin",
     "SelectionMixin",
     "CoordPickMixin",
+    "DeviceConnectionMixin",
     "DeviceKeyMixin",
     "PreferencesMixin",
     "ScreenshotMixin",

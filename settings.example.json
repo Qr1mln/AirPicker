@@ -2,6 +2,19 @@
   "toolbar": {
     "horizontal": false
   },
+  "auto_connect": false,
+  "connection": {
+    "adb_host": "127.0.0.1",
+    "adb_port": 5037,
+    "serial": "",
+    "cap_method": "MINICAP",
+    "touch_method": "MINITOUCH",
+    "ime_method": "YOSEMITEIME",
+    "ori_method": "MINICAPORI",
+    "display_id": "",
+    "input_event": "",
+    "adb_path": ""
+  },
   "resource_dir": "",
   "screenshot_dir": "",
   "screenshot_name_mode": "random",

@@ -4,29 +4,46 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
     QFileDialog,
     QFormLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
     QSpinBox,
     QStackedWidget,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from .. import screenshot_names
+from .. import screenshot_names, settings
 from ..config import ROOT, SCREENSHOT_DIR
+from ..connection import (
+    CAP_LABELS,
+    IME_LABELS,
+    ORI_LABELS,
+    PRESETS,
+    PRESET_LABELS,
+    TOUCH_LABELS,
+    URI_HINT,
+    build_uri,
+    match_preset,
+    normalize as normalize_connection,
+)
 
 
 class ToolbarSettingsDialog(QDialog):
     """悬浮工具栏设置弹窗。"""
+
+    connect_requested = Signal()
+    disconnect_requested = Signal()
 
     def __init__(
         self,
@@ -42,16 +59,145 @@ class ToolbarSettingsDialog(QDialog):
         tpl_expr: str = 'Template(r"{path}", record_pos=({rx}, {ry}), resolution=({rw}, {rh}))',
         swipe_expr: str = "swipe(({x1}, {y1}), ({x2}, {y2}))",
         lock_ratio: bool = True,
+        connection_status: str = "未连接",
+        can_connect: bool = True,
+        can_disconnect: bool = False,
+        auto_connect: bool = False,
+        connection: dict | None = None,
         parent: QWidget | None = None,
     ):
         super().__init__(parent)
         self.setWindowTitle("设置")
         self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
-        self.setMinimumWidth(560)
+        self.setMinimumWidth(600)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(18, 14, 18, 14)
         root.setSpacing(14)
+
+        tabs = QTabWidget()
+        conn_tab = QWidget()
+        conn_outer = QVBoxLayout(conn_tab)
+        conn_outer.setContentsMargins(0, 0, 0, 0)
+        conn_outer.setSpacing(12)
+        general_tab = QWidget()
+        gen_layout = QVBoxLayout(general_tab)
+        gen_layout.setContentsMargins(0, 0, 0, 0)
+        tabs.addTab(conn_tab, "设备连接")
+        tabs.addTab(general_tab, "界面与取码")
+
+        conn_cfg = normalize_connection(connection)
+        conn_group = QGroupBox("连接设置")
+        conn_layout = QVBoxLayout(conn_group)
+        conn_layout.setContentsMargins(12, 10, 12, 10)
+        conn_layout.setSpacing(8)
+        conn_row = QHBoxLayout()
+        conn_row.setSpacing(8)
+        self.conn_status = QLabel(f"状态：{connection_status}")
+        self.conn_button = QPushButton("连接设备")
+        self.conn_button.setEnabled(bool(can_connect))
+        self.conn_button.clicked.connect(self.connect_requested.emit)
+        self.disconnect_button = QPushButton("断开")
+        self.disconnect_button.setEnabled(bool(can_disconnect))
+        self.disconnect_button.clicked.connect(self.disconnect_requested.emit)
+        conn_row.addWidget(self.conn_status, 1)
+        conn_row.addWidget(self.conn_button)
+        conn_row.addWidget(self.disconnect_button)
+        conn_layout.addLayout(conn_row)
+        self.auto_connect_check = QCheckBox("启动界面加载完成后自动连接设备")
+        self.auto_connect_check.setChecked(bool(auto_connect))
+        self.auto_connect_check.stateChanged.connect(self._on_auto_connect_changed)
+        conn_layout.addWidget(self.auto_connect_check)
+        conn_outer.addWidget(conn_group)
+
+        params_group = QGroupBox("Android 连接参数（Airtest URI）")
+        params_form = QFormLayout(params_group)
+        params_form.setLabelAlignment(Qt.AlignRight)
+        params_form.setHorizontalSpacing(12)
+        params_form.setVerticalSpacing(8)
+
+        self.serial_edit = QLineEdit(conn_cfg["serial"])
+        self.serial_edit.setPlaceholderText("留空 = 自动选择唯一设备；多设备填序列号")
+        params_form.addRow("设备序列号", self.serial_edit)
+
+        host_widget = QWidget()
+        host_row = QHBoxLayout(host_widget)
+        host_row.setContentsMargins(0, 0, 0, 0)
+        host_row.setSpacing(6)
+        self.host_edit = QLineEdit(conn_cfg["adb_host"])
+        self.host_edit.setPlaceholderText("127.0.0.1")
+        self.port_spin = QSpinBox()
+        self.port_spin.setRange(1, 65535)
+        self.port_spin.setValue(conn_cfg["adb_port"])
+        host_row.addWidget(self.host_edit, 1)
+        host_row.addWidget(QLabel(":"))
+        host_row.addWidget(self.port_spin)
+        params_form.addRow("ADB 地址 / 端口", host_widget)
+        port_hint = QLabel(
+            "ADB server 端口默认 5037；网络模拟器地址（如 127.0.0.1:5555）请填在「设备序列号」"
+        )
+        port_hint.setStyleSheet("color: #888; font-size: 11px;")
+        port_hint.setWordWrap(True)
+        params_form.addRow("", port_hint)
+
+        self.preset_combo = QComboBox()
+        for value, text in PRESET_LABELS:
+            self.preset_combo.addItem(text, value)
+        preset_index = self.preset_combo.findData(match_preset(conn_cfg))
+        self.preset_combo.setCurrentIndex(max(0, preset_index))
+        params_form.addRow("连接方式", self.preset_combo)
+
+        methods_widget = QWidget()
+        methods_form = QFormLayout(methods_widget)
+        methods_form.setContentsMargins(0, 0, 0, 0)
+        methods_form.setHorizontalSpacing(12)
+        methods_form.setVerticalSpacing(8)
+
+        def add_method_row(label: str, items, current: str) -> QComboBox:
+            combo = QComboBox()
+            for value, text in items:
+                combo.addItem(text, value)
+            combo.setCurrentIndex(max(0, combo.findData(current)))
+            methods_form.addRow(label, combo)
+            return combo
+
+        self.cap_combo = add_method_row("截图方式", CAP_LABELS, conn_cfg["cap_method"])
+        self.touch_combo = add_method_row("触控方式", TOUCH_LABELS, conn_cfg["touch_method"])
+        self.ime_combo = add_method_row("输入方式", IME_LABELS, conn_cfg["ime_method"])
+        self.ori_combo = add_method_row("屏幕方向", ORI_LABELS, conn_cfg["ori_method"])
+        self.methods_widget = methods_widget
+        params_form.addRow("", methods_widget)
+
+        self.uri_preview = QLabel()
+        self.uri_preview.setStyleSheet("color: #6ab04c; font-size: 11px;")
+        self.uri_preview.setWordWrap(True)
+        params_form.addRow("连接 URI", self.uri_preview)
+        uri_hint = QLabel(URI_HINT)
+        uri_hint.setStyleSheet("color: #888; font-size: 11px;")
+        uri_hint.setWordWrap(True)
+        params_form.addRow("", uri_hint)
+
+        self.display_edit = QLineEdit(conn_cfg["display_id"])
+        self.display_edit.setPlaceholderText("多屏时填写，如 1")
+        params_form.addRow("display_id", self.display_edit)
+        self.input_event_edit = QLineEdit(conn_cfg["input_event"])
+        self.input_event_edit.setPlaceholderText("如 /dev/input/event3")
+        params_form.addRow("input_event", self.input_event_edit)
+        self.adb_path_edit = QLineEdit(conn_cfg["adb_path"])
+        self.adb_path_edit.setPlaceholderText("留空使用 airtest 自带 adb")
+        params_form.addRow("adb_path", self.adb_path_edit)
+
+        conn_outer.addWidget(params_group)
+        conn_outer.addStretch(1)
+
+        for widget in (self.serial_edit, self.host_edit, self.display_edit,
+                       self.input_event_edit, self.adb_path_edit):
+            widget.textChanged.connect(self._on_connection_changed)
+        self.port_spin.valueChanged.connect(self._on_connection_changed)
+        self.preset_combo.currentIndexChanged.connect(self._on_preset_changed)
+        for combo in (self.cap_combo, self.touch_combo, self.ime_combo, self.ori_combo):
+            combo.currentIndexChanged.connect(self._on_method_changed)
+        self._on_preset_changed()
 
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignRight)
@@ -197,7 +343,8 @@ class ToolbarSettingsDialog(QDialog):
         swipe_hint.setWordWrap(True)
         form.addRow("", swipe_hint)
 
-        root.addLayout(form)
+        gen_layout.addLayout(form)
+        root.addWidget(tabs)
 
         buttons = QHBoxLayout()
         buttons.setSpacing(8)
@@ -214,6 +361,68 @@ class ToolbarSettingsDialog(QDialog):
 
     def is_horizontal(self) -> bool:
         return bool(self.combo.currentData())
+
+    def set_connection_status(
+        self, status: str, can_connect: bool, can_disconnect: bool
+    ) -> None:
+        self.conn_status.setText(f"状态：{status}")
+        self.conn_button.setEnabled(bool(can_connect))
+        self.disconnect_button.setEnabled(bool(can_disconnect))
+
+    def _on_auto_connect_changed(self, state: int) -> None:
+        settings.save_auto_connect(bool(state))
+
+    def auto_connect(self) -> bool:
+        return self.auto_connect_check.isChecked()
+
+    def connection(self) -> dict:
+        return {
+            "adb_host": self.host_edit.text().strip(),
+            "adb_port": self.port_spin.value(),
+            "serial": self.serial_edit.text().strip(),
+            "cap_method": str(self.cap_combo.currentData() or ""),
+            "touch_method": str(self.touch_combo.currentData() or ""),
+            "ime_method": str(self.ime_combo.currentData() or ""),
+            "ori_method": str(self.ori_combo.currentData() or ""),
+            "display_id": self.display_edit.text().strip(),
+            "input_event": self.input_event_edit.text().strip(),
+            "adb_path": self.adb_path_edit.text().strip(),
+        }
+
+    def _on_preset_changed(self) -> None:
+        key = str(self.preset_combo.currentData() or "custom")
+        preset = PRESETS.get(key)
+        if preset:
+            method_combos = (self.cap_combo, self.touch_combo, self.ime_combo, self.ori_combo)
+            for combo in method_combos:
+                combo.blockSignals(True)
+            try:
+                self.cap_combo.setCurrentIndex(max(0, self.cap_combo.findData(preset["cap_method"])))
+                self.touch_combo.setCurrentIndex(
+                    max(0, self.touch_combo.findData(preset["touch_method"]))
+                )
+                self.ime_combo.setCurrentIndex(max(0, self.ime_combo.findData(preset["ime_method"])))
+                self.ori_combo.setCurrentIndex(max(0, self.ori_combo.findData(preset["ori_method"])))
+            finally:
+                for combo in method_combos:
+                    combo.blockSignals(False)
+        self.methods_widget.setVisible(not preset)
+        self._on_connection_changed()
+
+    def _on_method_changed(self) -> None:
+        key = match_preset(self.connection())
+        index = self.preset_combo.findData(key)
+        if index >= 0:
+            self.preset_combo.blockSignals(True)
+            self.preset_combo.setCurrentIndex(index)
+            self.preset_combo.blockSignals(False)
+            self.methods_widget.setVisible(key == "custom")
+        self._on_connection_changed()
+
+    def _on_connection_changed(self) -> None:
+        cfg = self.connection()
+        self.uri_preview.setText(build_uri(cfg))
+        settings.save_connection(cfg)
 
     def _browse_dir(self) -> None:
         start = self.dir_edit.text().strip()

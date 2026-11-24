@@ -21,6 +21,22 @@ def draw_refresh(p: QPainter, cx: float, cy: float) -> None:
         p.drawLine(tip, QPointF(tip.x() + 1, tip.y() - 4))
 
 
+def draw_connect(p: QPainter, cx: float, cy: float) -> None:
+    """两端节点用线连起来 —— 连接。"""
+    p.drawRoundedRect(QRectF(cx - 13, cy - 6, 7, 12), 2, 2)
+    p.drawRoundedRect(QRectF(cx + 6, cy - 6, 7, 12), 2, 2)
+    p.drawLine(int(cx - 6), int(cy), int(cx + 6), int(cy))
+
+
+def draw_disconnect(p: QPainter, cx: float, cy: float) -> None:
+    """两端节点断线加斜杠 —— 断开。"""
+    p.drawRoundedRect(QRectF(cx - 13, cy - 6, 7, 12), 2, 2)
+    p.drawRoundedRect(QRectF(cx + 6, cy - 6, 7, 12), 2, 2)
+    p.drawLine(int(cx - 6), int(cy), int(cx - 2), int(cy))
+    p.drawLine(int(cx + 2), int(cy), int(cx + 6), int(cy))
+    p.drawLine(int(cx - 3), int(cy + 3), int(cx + 3), int(cy - 3))
+
+
 def draw_back(p: QPainter, cx: float, cy: float) -> None:
     p.drawLine(int(cx - 10), int(cy), int(cx + 10), int(cy))
     p.drawLine(int(cx - 10), int(cy), int(cx - 3), int(cy - 7))
@@ -92,6 +108,8 @@ def draw_settings(p: QPainter, cx: float, cy: float) -> None:
 
 ICON_DRAWERS: dict[str, Callable[[QPainter, float, float], None]] = {
     "refresh": draw_refresh,
+    "connect": draw_connect,
+    "disconnect": draw_disconnect,
     "back": draw_back,
     "home": draw_home,
     "coord": draw_coord,

@@ -3,7 +3,9 @@
 from pathlib import Path
 
 # -------------------------------- 设备 --------------------------------
-SERIAL = ""  # 多设备时填设备序列号，例如 "emulator-5554"
+# 连接参数已迁移到 settings.json 的 connection 段（设置弹窗「设备连接」页）。
+# 以下两个常量仅作历史参考，device.build_uri() 不再读取它们。
+SERIAL = ""
 DEVICE_URI = "Android:///?cap_method=MINICAP&touch_method=MINITOUCH"
 MINICAP_QUALITY = 100
 

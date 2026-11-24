@@ -63,6 +63,11 @@ class IconButton(QWidget):
         self._press_pos: QPoint | None = None
         self._anims: dict[str, QPropertyAnimation] = {}
 
+    def set_kind(self, kind: str) -> None:
+        if self.kind != kind:
+            self.kind = kind
+            self.update()
+
     def _get_hover(self) -> float:
         return self._hover
 

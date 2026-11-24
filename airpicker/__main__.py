@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""AirPicker 入口：从 Android 实时屏幕框选模板，并生成 Airtest 代码。
+"""AirPicker 入口：界面先启动，设备连接由设置或自动连接触发。
 
 运行：
     uv run python -m airpicker
@@ -14,27 +14,13 @@ if str(_ROOT) not in sys.path:
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
-from airpicker.device import connect, device_screen_wh
+from airpicker.main_window import MainWindow
 
 
 def main() -> None:
-    print("[信息] 正在连接设备：...")
-    try:
-        device = connect()
-    except Exception as exc:
-        print(f"[错误] 设备连接失败：{exc}")
-        print("[提示] MINICAP 不可用时可改用：")
-        print("       Android:///?cap_method=JAVACAP&touch_method=MINITOUCH")
-        raise SystemExit(1) from exc
-
-    screen_wh = device_screen_wh(device)
-    if screen_wh:
-        print(f"[信息] 设备屏幕：{screen_wh[0]} x {screen_wh[1]}")
-
-    from airpicker.main_window import MainWindow
-
+    print("[信息] AirPicker 已启动，暂不连接设备；可在设置中连接或开启自动连接")
     app = QApplication([])
-    window = MainWindow(device, screen_wh)
+    window = MainWindow()
     window.show()
     window.toolbar.move(
         window.width() - window.toolbar.width() - 20,

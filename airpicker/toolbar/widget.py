@@ -16,6 +16,7 @@ class FloatingToolbar(QFrame):
         self._drag_pos: QPoint | None = None
         self.drag_state_changed = None
         self.settings_clicked = None
+        self.connection_toggled = None
         self.screenshot_clicked = None
         self.coord_clicked = None
         self.select_clicked = None
@@ -37,10 +38,13 @@ class FloatingToolbar(QFrame):
         self._inner_layout = QBoxLayout(QBoxLayout.TopToBottom, self._inner)
         self._inner_layout.setContentsMargins(0, 4, 0, 4)
         self._inner_layout.setSpacing(0)
-        for kind in ("refresh", "back", "home", "screenshot", "settings"):
+        for kind in ("refresh", "connect", "back", "home", "screenshot", "settings"):
             btn = IconButton(kind, self._inner)
             btn.setObjectName("toolbarIcon")
-            if kind == "back":
+            if kind == "connect":
+                btn.clicked = self._toggle_connection
+                self._connect_btn = btn
+            elif kind == "back":
                 btn.clicked = self._go_back
             elif kind == "home":
                 btn.clicked = self._go_home
@@ -61,6 +65,14 @@ class FloatingToolbar(QFrame):
             btn.clicked = callback
             self._inner_layout.addWidget(btn)
         self._apply_orientation()
+
+    def _toggle_connection(self) -> None:
+        if self.connection_toggled:
+            self.connection_toggled()
+
+    def set_connected(self, connected: bool) -> None:
+        """根据连接状态切换按钮图标：已连接显示断开，未连接显示连接。"""
+        self._connect_btn.set_kind("disconnect" if connected else "connect")
 
     def _go_back(self) -> None:
         if self.back_clicked:
@@ -103,10 +115,10 @@ class FloatingToolbar(QFrame):
         self._separator.set_horizontal(self._horizontal)
         if self._horizontal:
             self._inner_layout.setDirection(QBoxLayout.LeftToRight)
-            self.setFixedSize(348, 60)
+            self.setFixedSize(392, 60)
         else:
             self._inner_layout.setDirection(QBoxLayout.TopToBottom)
-            self.setFixedSize(56, 388)
+            self.setFixedSize(56, 432)
 
     def _clamp_pos(self, pos: QPoint) -> QPoint:
         parent = self.parentWidget()

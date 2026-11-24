@@ -11,6 +11,8 @@ class DeviceKeyMixin:
         self._send_key("HOME", "主页")
 
     def _send_key(self, key: str, label: str) -> None:
+        if not self._require_device():
+            return
         try:
             self.device.keyevent(key)
             print(f"[按键] {label}")

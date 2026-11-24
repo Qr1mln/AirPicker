@@ -60,7 +60,7 @@ AirPicker 就是为此设计的，核心闭环：
 - **全屏截图**：点击相机按钮按设备原图分辨率保存整屏 PNG 到独立目录，画面闪光 + 绿色提示确认。
 - **悬浮工具栏**：黑色面板 + 白色线性图标，可拖拽、可横竖切换，带悬停 / 按下 / 刷新旋转动画。
 - **连接自愈**：ADB 连接失败时自动强制结束 `adb.exe` 并重启 ADB Server 重试一次。
-- **设置持久化**：工具栏方向、资源 / 项目目录、回写表达式、窗口大小等保存在 `settings.json`。
+- **设置持久化**：Android 连接协议参数、自动连接、工具栏方向、资源 / 项目目录、回写表达式、窗口大小等保存在 `settings.json`。
 
 ![工具栏参考](docs/工具栏参考.png)
 
@@ -118,7 +118,7 @@ adb devices
 
 输出中应出现设备序列号且状态为 `device`（不是 `unauthorized` / `offline`）。
 
-多设备时，在 `airpicker/config.py` 里把 `SERIAL` 设为目标序列号。
+多设备时，在设置弹窗「设备连接」页填写目标设备序列号（保存到 `settings.json` 的 `connection.serial`）。
 
 ### 4. 验证安装
 
@@ -148,16 +148,23 @@ uv run python -m airpicker
 
 `main.py` 只是把项目根目录加入 `sys.path` 后调用 `airpicker.__main__.main()`，等价于命令行的 `python -m airpicker`。
 
-启动成功后控制台会输出：
+启动后先显示主界面，控制台输出：
+
+```text
+[信息] AirPicker 已启动，暂不连接设备；可在设置中连接或开启自动连接
+[信息] 未连接设备，可在设置中连接或开启自动连接
+```
+
+窗口中央提示「未连接设备」。点击齿轮打开设置 → 「连接设置」→「连接设备」即可连接；勾选「启动界面加载完成后自动连接设备」后，下次启动会在界面加载完成时自动尝试连接（后台执行，不阻塞界面）。连接成功后控制台输出：
 
 ```text
 [信息] 正在连接设备：...
-[信息] 设备屏幕：1080 x 2400
 [信息] 设备连接成功（MINICAP）
+[信息] 设备屏幕：1080 x 2400
 [信息] 默认模式：单击=点击设备，拖拽=滑动设备；工具栏可切换框选 / 取点
 ```
 
-随后弹出实时投屏窗口，右上角（或上方）为可拖拽的悬浮工具栏。
+右上角（或上方）为可拖拽的悬浮工具栏。
 
 ### 可选：打包为独立 exe
 
@@ -174,13 +181,29 @@ uv run pyinstaller --noconfirm --onefile --windowed main.py -n AirPicker
 
 ## 使用指南
 
+### 连接设备
+
+程序启动时不连接设备。点击工具栏齿轮打开设置，切换到「设备连接」页；也可以直接点工具栏的链环按钮，按当前配置立即连接：
+
+- **连接设置**：显示当前状态并提供「连接设备」/「断开」按钮；连接过程在后台线程执行，界面不会卡住。断开会停止投屏并释放 Airtest 的推流 / 触控资源，画面回到「未连接设备」提示。勾选「启动界面加载完成后自动连接设备」后，每次启动都会在界面加载完成后自动尝试连接（勾选即时保存到 `settings.json`）。
+- **Android 连接参数**：按 Airtest 的 Android URI 协议配置，界面只展示 Android。其中「连接方式」是单选预设，选「推荐 / 兼容 / 截图兼容」会自动填好截图方式（`cap_method`）、触控方式（`touch_method`）、输入方式（`ime_method`）、屏幕方向（`ori_method`）；选「自定义」才展开这 4 个下拉逐项设置。另有设备序列号、ADB 地址/端口，以及高级项 `display_id` / `input_event` / `adb_path`。修改任意项后下方实时显示最终连接 URI，例如：
+
+```text
+Android://127.0.0.1:5037/emulator-5554?cap_method=JAVACAP&touch_method=MINITOUCH&ime_method=YOSEMITEIME&ori_method=MINICAPORI
+```
+
+连接参数与自动连接开关都是**修改即保存**，改完直接点「连接设备」即使用当前参数，无需先点「确定」。
+
+未连接时，返回 / 主页、鼠标触控 / 滑动会给出提示，不会报错退出。
+
 ### 界面与工具栏
 
-窗口主体是 Android 实时画面，悬浮工具栏包含 8 个按钮：
+窗口主体是 Android 实时画面，悬浮工具栏包含 9 个按钮：
 
 | 按钮 | 作用 |
 | --- | --- |
 | 强制刷新（双弧循环箭头） | 视觉反馈动画（图标旋转 360°），不执行设备操作 |
+| 连接 / 断开（两端节点切换） | 单一按钮：未连接时显示连通图标，点击连接；已连接时显示断线图标，点击断开（停止投屏并释放 Airtest 资源） |
 | 返回（左箭头） | 向设备下发返回键 |
 | 主页（房子） | 向设备下发 Home 键 |
 | 截图（相机） | 保存全屏原图到截图目录，画面闪光提示 |
@@ -252,6 +275,16 @@ Template(r"{path}", record_pos=({rx}, {ry}), resolution=({rw}, {rh}))
 
 | 设置项 | 说明 |
 | --- | --- |
+| 连接状态 / 连接设备 | 显示当前连接状态；点击按钮在后台连接设备 |
+| 启动界面加载完成后自动连接设备 | 开启后每次启动自动尝试连接，默认关闭 |
+| 设备序列号 | 留空自动选择唯一设备，多设备填序列号 |
+| ADB 地址 / 端口 | 默认 `127.0.0.1:5037` |
+| 连接方式 | 单选预设：推荐 / 兼容 / 截图兼容；选「自定义」才展开下面 4 项 |
+| 截图方式 `cap_method` | `MINICAP` / `JAVACAP` / `ADBCAP`（仅自定义时显示） |
+| 触控方式 `touch_method` | `MINITOUCH` / `MAXTOUCH` / `ADBTOUCH`（仅自定义时显示） |
+| 输入方式 `ime_method` | `YOSEMITEIME` / `ADBIME`（仅自定义时显示） |
+| 屏幕方向 `ori_method` | `MINICAPORI` / `ADBORI`（仅自定义时显示） |
+| `display_id` / `input_event` / `adb_path` | 高级项，一般留空 |
 | 工具栏横 / 竖 | 布局方向 |
 | 资源目录 | 模板图片保存目录，默认项目 `pics/` |
 | 截图目录 | 全屏截图保存目录，与资源目录独立，默认项目 `screenshots/` |
@@ -321,9 +354,9 @@ assert_exists(Template(r"../pics/tpl_success.png", record_pos=(0.0, 0.2), resolu
 
 | 常量 | 说明 | 默认值 |
 | --- | --- | --- |
-| `SERIAL` | 多设备时指定序列号，留空用默认设备 | `""` |
-| `DEVICE_URI` | Airtest 连接串 | `Android:///?cap_method=MINICAP&touch_method=MINITOUCH` |
 | `MINICAP_QUALITY` | MINICAP 画质（1~100） | `100` |
+
+> 设备连接参数（原 `SERIAL` / `DEVICE_URI`）已迁移到 `settings.json` 的 `connection` 段，在设置弹窗「设备连接」页配置；`config.py` 中的同名常量仅作历史参考，不再生效。
 | `MAX_W` / `MAX_H` | 窗口最大宽高 | `1280` / `1200` |
 | `DISPLAY_SHARPEN` | 显示锐化 | `True` |
 | `FPS` | 投屏帧率 | `30` |
@@ -346,7 +379,7 @@ assert_exists(Template(r"../pics/tpl_success.png", record_pos=(0.0, 0.2), resolu
 
 ### `ADB devices not found` / 连接失败
 
-程序会先打印首次失败原因，然后**自动强制结束所有 `adb.exe`、重启 ADB Server 并重试一次**：
+发起连接后（手动点击或自动连接），程序会先打印首次失败原因，然后**自动强制结束所有 `adb.exe`、重启 ADB Server 并重试一次**：
 
 ```text
 [警告] 首次连接失败：ADB devices not found
@@ -356,20 +389,23 @@ assert_exists(Template(r"../pics/tpl_success.png", record_pos=(0.0, 0.2), resolu
 
 仍失败时请检查：
 
-1. USB 调试是否开启、弹窗是否点了「允许」；
-2. `adb devices` 能否看到设备；
-3. 是否有其他工具占用 ADB（重启会结束所有 `adb.exe`，包括 AirtestIDE 的）；
-4. 设备是否离线，尝试重新插拔 USB。
+1. **ADB server 端口**：设置「设备连接」页的 ADB 端口默认是 `5037`。若误填成 `5555`（模拟器调试端口），就会出现 `ADB devices not found` / `device not ready`；网络模拟器应把 `127.0.0.1:5555` 填在「设备序列号」里，端口保持 5037（必要时先执行 `adb connect 127.0.0.1:5555`）。
+2. USB 调试是否开启、弹窗是否点了「允许」；
+3. `adb devices` 能否看到设备且状态为 `device`；
+4. 模拟器是否已启动完成（设备未就绪时程序会跳过 ADB 重启，避免无效杀进程）；
+5. 是否有其他工具占用 ADB（重启会结束所有 `adb.exe`，包括 AirtestIDE 的；30 秒内不会重复重启）。
+
+程序会按失败原因给出针对性提示，不再一律建议改 MINICAP。
 
 ### MINICAP 不可用
 
-连接或取帧失败时，控制台会提示改用 JAVACAP：
+仅当失败信息涉及 MINICAP / 截图能力时，控制台才会提示改用 JAVACAP：
 
 ```text
 Android:///?cap_method=JAVACAP&touch_method=MINITOUCH
 ```
 
-把 `config.py` 的 `DEVICE_URI` 改为上述字符串后重启。多设备时保留 `127.0.0.1:5037/序列号` 部分，只替换 `cap_method`。
+在设置弹窗「设备连接」页把「截图方式」改为 `JAVACAP` 后重新连接即可，无需改代码或重启；下方 URI 预览会同步显示新的连接串。多设备时同时填写设备序列号。
 
 ### 模板路径不对
 

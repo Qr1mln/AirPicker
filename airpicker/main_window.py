@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 
 import numpy as np
-from PySide6.QtCore import QPoint, QTimer
+from PySide6.QtCore import QPoint, QTimer, Signal
 from PySide6.QtWidgets import QMainWindow
 
 from . import image_utils, settings
@@ -19,6 +19,7 @@ from .config import (
 )
 from .interactions import (
     CoordPickMixin,
+    DeviceConnectionMixin,
     DeviceKeyMixin,
     GestureMixin,
     InteractionModeMixin,
@@ -35,14 +36,19 @@ class MainWindow(
     GestureMixin,
     SelectionMixin,
     CoordPickMixin,
+    DeviceConnectionMixin,
     DeviceKeyMixin,
     PreferencesMixin,
     ScreenshotMixin,
     QMainWindow,
 ):
-    def __init__(self, device, screen_wh: tuple[int, int] | None = None):
+    connectionStateChanged = Signal(str, bool, bool)  # 状态文本、可连接、可断开
+
+    def __init__(self, device=None, screen_wh: tuple[int, int] | None = None):
         super().__init__()
         self.device = device
+        self._connecting = False
+        self._connect_worker = None
         self.latest_bgr: np.ndarray | None = None
         self.frozen_bgr: np.ndarray | None = None
         self.drag_start: QPoint | None = None
@@ -68,9 +74,11 @@ class MainWindow(
         cur_settings = settings.load_settings()
         self._lock_ratio = settings.get_lock_ratio(cur_settings)
 
-        self.setWindowTitle("AirPicker")
+        self.setWindowTitle("AirPicker · 未连接设备" if device is None else "AirPicker")
         self.screen = ScreenWidget(self)
         self.setCentralWidget(self.screen)
+        if device is None:
+            self.screen.setText("未连接设备\n请在设置中点击「连接设备」")
         saved_size = settings.get_window_size(cur_settings)
         if saved_size:
             self.resize(*saved_size)
@@ -84,6 +92,8 @@ class MainWindow(
         self.toolbar.set_horizontal(settings.get_toolbar_horizontal(cur_settings))
         self.toolbar.drag_state_changed = self.set_toolbar_dragging
         self.toolbar.settings_clicked = self.open_toolbar_settings
+        self.toolbar.connection_toggled = self.toggle_connection
+        self.connectionStateChanged.connect(self._on_connection_state_for_toolbar)
         self.toolbar.screenshot_clicked = self.capture_screenshot
         self.toolbar.select_clicked = self.start_select_mode
         self.toolbar.coord_clicked = self.start_pick_coord
@@ -103,14 +113,30 @@ class MainWindow(
         self._device_retry_timer.setSingleShot(True)
         self._device_retry_timer.timeout.connect(self._retry_device)
 
-        method = getattr(getattr(device, "screen_proxy", None), "method_name", "MINICAP")
-        print(f"[信息] 设备连接成功（{method}）")
-        print("[信息] 默认模式：单击=点击设备，拖拽=滑动设备；工具栏可切换框选 / 取点")
+        if device is not None:
+            method = getattr(getattr(device, "screen_proxy", None), "method_name", "MINICAP")
+            print(f"[信息] 设备连接成功（{method}）")
+            print("[信息] 默认模式：单击=点击设备，拖拽=滑动设备；工具栏可切换框选 / 取点")
+        else:
+            print("[信息] 未连接设备，可在设置中连接或开启自动连接")
 
     # -------- 预览与窗口事件 --------
     def start(self) -> None:
+        """界面加载完成后调用：按需启动预览并尝试自动连接。"""
         self._preview_started = True
-        if not self._preview_paused and not self._waiting_device and not self._closing:
+        self._maybe_start_preview()
+        if settings.get_auto_connect(settings.load_settings()):
+            QTimer.singleShot(0, self.connect_device)
+
+    def _maybe_start_preview(self) -> None:
+        if (
+            self._preview_started
+            and self.device is not None
+            and not self._preview_paused
+            and not self._waiting_device
+            and not self._closing
+            and not self.timer.isActive()
+        ):
             self.timer.start(FRAME_INTERVAL_MS)
 
     def set_preview_paused(self, paused: bool) -> None:
@@ -120,8 +146,8 @@ class MainWindow(
         if paused:
             if self.timer.isActive():
                 self.timer.stop()
-        elif self._preview_started and not self.timer.isActive():
-            self.timer.start(FRAME_INTERVAL_MS)
+        else:
+            self._maybe_start_preview()
 
     def set_toolbar_dragging(self, dragging: bool) -> None:
         self._toolbar_dragging = dragging
@@ -271,5 +297,7 @@ class MainWindow(
         self._move_resume_timer.stop()
         self._aspect_timer.stop()
         self._device_retry_timer.stop()
+        if self._connect_worker is not None:
+            self._connect_worker.requestInterruption()
         settings.save_window_size(max(1, self.width()), max(1, self.height()))
         super().closeEvent(event)

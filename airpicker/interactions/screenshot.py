@@ -56,6 +56,8 @@ class ScreenshotMixin:
 
     def _screenshot_frame(self) -> np.ndarray | None:
         """优先实时抓取完整画面，失败时回退到最近一帧。"""
+        if self.device is None:
+            return self.latest_bgr
         try:
             frame = image_utils.to_bgr(self.device.snapshot())
             if frame is not None:

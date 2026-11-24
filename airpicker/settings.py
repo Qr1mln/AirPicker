@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import PICS_DIR, ROOT, SCRIPTS_DIR, SCREENSHOT_DIR
+from .connection import DEFAULT_CONNECTION, normalize as normalize_connection
 from .screenshot_names import (
     DEFAULT_RANDOM_EXPR,
     DEFAULT_SEQUENCE_EXPR,
@@ -25,6 +26,8 @@ DEFAULTS: dict[str, Any] = {
     "toolbar": {
         "horizontal": False,
     },
+    "auto_connect": False,
+    "connection": dict(DEFAULT_CONNECTION),
     "resource_dir": "",
     "screenshot_dir": "",
     "screenshot_name_mode": SCREENSHOT_NAME_RANDOM,
@@ -55,6 +58,10 @@ def load_settings() -> dict[str, Any]:
     saved = raw.get("toolbar")
     if isinstance(saved, dict) and isinstance(saved.get("horizontal"), bool):
         settings["toolbar"]["horizontal"] = saved["horizontal"]
+    auto_connect = raw.get("auto_connect")
+    if isinstance(auto_connect, bool):
+        settings["auto_connect"] = auto_connect
+    settings["connection"] = normalize_connection(raw.get("connection"))
     resource_dir = raw.get("resource_dir")
     if isinstance(resource_dir, str):
         settings["resource_dir"] = resource_dir.strip()
@@ -104,6 +111,16 @@ def load_settings() -> dict[str, Any]:
 
 def get_toolbar_horizontal(settings: dict[str, Any]) -> bool:
     return bool(settings.get("toolbar", {}).get("horizontal", False))
+
+
+def get_auto_connect(settings: dict[str, Any]) -> bool:
+    """启动界面加载完成后是否自动尝试连接设备。"""
+    return bool(settings.get("auto_connect", False))
+
+
+def get_connection(settings: dict[str, Any]) -> dict[str, Any]:
+    """返回校验后的 Android 连接配置。"""
+    return normalize_connection(settings.get("connection"))
 
 
 def get_lock_ratio(settings: dict[str, Any]) -> bool:
@@ -201,6 +218,18 @@ def _write_settings(settings: dict[str, Any]) -> None:
 def save_toolbar_horizontal(horizontal: bool) -> None:
     settings = load_settings()
     settings.setdefault("toolbar", {})["horizontal"] = bool(horizontal)
+    _write_settings(settings)
+
+
+def save_auto_connect(enabled: bool) -> None:
+    settings = load_settings()
+    settings["auto_connect"] = bool(enabled)
+    _write_settings(settings)
+
+
+def save_connection(data: dict[str, Any]) -> None:
+    settings = load_settings()
+    settings["connection"] = normalize_connection(data)
     _write_settings(settings)
 
 
