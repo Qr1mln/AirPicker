@@ -9,13 +9,21 @@ from PySide6.QtCore import QPoint, QTimer
 from PySide6.QtWidgets import QMainWindow
 
 from . import image_utils, settings
-from .config import FRAME_INTERVAL_MS, MAX_H, MAX_W, MODE_GESTURE
+from .config import (
+    CAPTURE_MAX_FAILURES,
+    CAPTURE_RETRY_MS,
+    FRAME_INTERVAL_MS,
+    MAX_H,
+    MAX_W,
+    MODE_GESTURE,
+)
 from .interactions import (
     CoordPickMixin,
     DeviceKeyMixin,
     GestureMixin,
     InteractionModeMixin,
     PreferencesMixin,
+    ScreenshotMixin,
     SelectionMixin,
 )
 from .screen_widget import ScreenWidget
@@ -29,6 +37,7 @@ class MainWindow(
     CoordPickMixin,
     DeviceKeyMixin,
     PreferencesMixin,
+    ScreenshotMixin,
     QMainWindow,
 ):
     def __init__(self, device, screen_wh: tuple[int, int] | None = None):
@@ -46,6 +55,9 @@ class MainWindow(
         self._last_title = ""
         self._preview_started = False
         self._preview_paused = False
+        self._closing = False
+        self._capture_failures = 0
+        self._waiting_device = False
         self._toolbar_dragging = False
         self._window_moving = False
         self._screen_wh = tuple(screen_wh) if screen_wh else None
@@ -72,6 +84,7 @@ class MainWindow(
         self.toolbar.set_horizontal(settings.get_toolbar_horizontal(cur_settings))
         self.toolbar.drag_state_changed = self.set_toolbar_dragging
         self.toolbar.settings_clicked = self.open_toolbar_settings
+        self.toolbar.screenshot_clicked = self.capture_screenshot
         self.toolbar.select_clicked = self.start_select_mode
         self.toolbar.coord_clicked = self.start_pick_coord
         self.toolbar.swipe_clicked = self.start_swipe_mode
@@ -86,6 +99,9 @@ class MainWindow(
         self._aspect_timer = QTimer(self)
         self._aspect_timer.setSingleShot(True)
         self._aspect_timer.timeout.connect(self._apply_aspect_ratio)
+        self._device_retry_timer = QTimer(self)
+        self._device_retry_timer.setSingleShot(True)
+        self._device_retry_timer.timeout.connect(self._retry_device)
 
         method = getattr(getattr(device, "screen_proxy", None), "method_name", "MINICAP")
         print(f"[信息] 设备连接成功（{method}）")
@@ -94,10 +110,12 @@ class MainWindow(
     # -------- 预览与窗口事件 --------
     def start(self) -> None:
         self._preview_started = True
-        if not self._preview_paused:
+        if not self._preview_paused and not self._waiting_device and not self._closing:
             self.timer.start(FRAME_INTERVAL_MS)
 
     def set_preview_paused(self, paused: bool) -> None:
+        if not paused and (self._waiting_device or self._closing):
+            return
         self._preview_paused = paused
         if paused:
             if self.timer.isActive():
@@ -171,13 +189,14 @@ class MainWindow(
 
     # -------- 抓帧与渲染 --------
     def on_frame(self) -> None:
-        if self.dragging or self._preview_paused:
+        if self._closing or self.dragging or self._preview_paused:
             return
         try:
             raw = self.device.snapshot()
         except Exception as exc:
-            print(f"[警告] 截图异常：{exc}")
+            self._handle_capture_error(exc)
             return
+        self._capture_failures = 0
         arr = image_utils.to_bgr(raw)
         if arr is None:
             return
@@ -194,6 +213,32 @@ class MainWindow(
         self.frame_times.append(time.perf_counter())
         self.frame_times = self.frame_times[-20:]
         self._update_title()
+
+    def _handle_capture_error(self, exc: Exception) -> None:
+        """只提示首次异常，连续失败后暂停预览并等待设备恢复。"""
+        self._capture_failures += 1
+        if self._capture_failures == 1:
+            detail = str(exc).strip() or type(exc).__name__
+            print(f"[警告] 截图异常：{detail}")
+        if self._capture_failures >= CAPTURE_MAX_FAILURES and not self._waiting_device:
+            self._waiting_device = True
+            self.set_preview_paused(True)
+            self._device_retry_timer.start(CAPTURE_RETRY_MS)
+            print("[信息] 连续截图失败，已暂停预览；设备恢复后将自动继续")
+
+    def _retry_device(self) -> None:
+        """后台低频探测设备，恢复后自动继续预览，不刷日志。"""
+        if self._closing or not self._waiting_device:
+            return
+        try:
+            self.device.snapshot()
+        except Exception:
+            self._device_retry_timer.start(CAPTURE_RETRY_MS)
+            return
+        self._waiting_device = False
+        self._capture_failures = 0
+        print("[信息] 设备画面已恢复，继续预览")
+        self._maybe_resume_preview()
 
     def _fps(self) -> int:
         if len(self.frame_times) < 2:
@@ -220,9 +265,11 @@ class MainWindow(
             self._last_title = title
 
     def closeEvent(self, event) -> None:
+        self._closing = True
         self._preview_started = False
         self.timer.stop()
         self._move_resume_timer.stop()
         self._aspect_timer.stop()
+        self._device_retry_timer.stop()
         settings.save_window_size(max(1, self.width()), max(1, self.height()))
         super().closeEvent(event)

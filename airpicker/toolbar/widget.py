@@ -16,6 +16,7 @@ class FloatingToolbar(QFrame):
         self._drag_pos: QPoint | None = None
         self.drag_state_changed = None
         self.settings_clicked = None
+        self.screenshot_clicked = None
         self.coord_clicked = None
         self.select_clicked = None
         self.swipe_clicked = None
@@ -36,13 +37,15 @@ class FloatingToolbar(QFrame):
         self._inner_layout = QBoxLayout(QBoxLayout.TopToBottom, self._inner)
         self._inner_layout.setContentsMargins(0, 4, 0, 4)
         self._inner_layout.setSpacing(0)
-        for kind in ("refresh", "back", "home", "settings"):
+        for kind in ("refresh", "back", "home", "screenshot", "settings"):
             btn = IconButton(kind, self._inner)
             btn.setObjectName("toolbarIcon")
             if kind == "back":
                 btn.clicked = self._go_back
             elif kind == "home":
                 btn.clicked = self._go_home
+            elif kind == "screenshot":
+                btn.clicked = self._capture_screenshot
             elif kind == "settings":
                 btn.clicked = self._open_settings
             self._inner_layout.addWidget(btn)
@@ -66,6 +69,10 @@ class FloatingToolbar(QFrame):
     def _go_home(self) -> None:
         if self.home_clicked:
             self.home_clicked()
+
+    def _capture_screenshot(self) -> None:
+        if self.screenshot_clicked:
+            self.screenshot_clicked()
 
     def _open_settings(self) -> None:
         if self.settings_clicked:
@@ -96,10 +103,10 @@ class FloatingToolbar(QFrame):
         self._separator.set_horizontal(self._horizontal)
         if self._horizontal:
             self._inner_layout.setDirection(QBoxLayout.LeftToRight)
-            self.setFixedSize(324, 60)
+            self.setFixedSize(348, 60)
         else:
             self._inner_layout.setDirection(QBoxLayout.TopToBottom)
-            self.setFixedSize(56, 344)
+            self.setFixedSize(56, 388)
 
     def _clamp_pos(self, pos: QPoint) -> QPoint:
         parent = self.parentWidget()

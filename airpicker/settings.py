@@ -7,7 +7,13 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from .config import PICS_DIR, ROOT, SCRIPTS_DIR
+from .config import PICS_DIR, ROOT, SCRIPTS_DIR, SCREENSHOT_DIR
+from .screenshot_names import (
+    DEFAULT_RANDOM_EXPR,
+    DEFAULT_SEQUENCE_EXPR,
+    SCREENSHOT_NAME_RANDOM,
+    SCREENSHOT_NAME_SEQUENCE,
+)
 
 SETTINGS_PATH = ROOT / "settings.json"
 
@@ -20,6 +26,11 @@ DEFAULTS: dict[str, Any] = {
         "horizontal": False,
     },
     "resource_dir": "",
+    "screenshot_dir": "",
+    "screenshot_name_mode": SCREENSHOT_NAME_RANDOM,
+    "screenshot_random_expr": DEFAULT_RANDOM_EXPR,
+    "screenshot_seq_expr": DEFAULT_SEQUENCE_EXPR,
+    "screenshot_seq_next": None,
     "project_dir": "",
     "coord_expr": DEFAULT_COORD_EXPR,
     "tpl_expr": DEFAULT_TPL_EXPR,
@@ -47,6 +58,25 @@ def load_settings() -> dict[str, Any]:
     resource_dir = raw.get("resource_dir")
     if isinstance(resource_dir, str):
         settings["resource_dir"] = resource_dir.strip()
+    screenshot_dir = raw.get("screenshot_dir")
+    if isinstance(screenshot_dir, str):
+        settings["screenshot_dir"] = screenshot_dir.strip()
+    name_mode = raw.get("screenshot_name_mode")
+    if name_mode in (SCREENSHOT_NAME_RANDOM, SCREENSHOT_NAME_SEQUENCE):
+        settings["screenshot_name_mode"] = name_mode
+    random_expr = raw.get("screenshot_random_expr")
+    if isinstance(random_expr, str) and random_expr.strip():
+        settings["screenshot_random_expr"] = random_expr.strip()
+    seq_expr = raw.get("screenshot_seq_expr")
+    if isinstance(seq_expr, str) and seq_expr.strip():
+        settings["screenshot_seq_expr"] = seq_expr.strip()
+    else:
+        legacy = raw.get("screenshot_seq_format")
+        if isinstance(legacy, str) and legacy.strip() and set(legacy.strip()) == {"0"}:
+            settings["screenshot_seq_expr"] = f"screen_{{{legacy.strip()}}}"
+    seq_next = raw.get("screenshot_seq_next")
+    if isinstance(seq_next, int) and not isinstance(seq_next, bool) and seq_next >= 0:
+        settings["screenshot_seq_next"] = seq_next
     project_dir = raw.get("project_dir")
     if isinstance(project_dir, str):
         settings["project_dir"] = project_dir.strip()
@@ -96,6 +126,41 @@ def get_resource_dir(settings: dict[str, Any]) -> Path:
     return PICS_DIR
 
 
+def get_screenshot_dir(settings: dict[str, Any]) -> Path:
+    """全屏截图保存目录：未设置时回退到项目 screenshots 目录。"""
+    raw = settings.get("screenshot_dir", "")
+    if isinstance(raw, str) and raw.strip():
+        path = Path(raw.strip()).expanduser()
+        return path if path.is_absolute() else (ROOT / path)
+    return SCREENSHOT_DIR
+
+
+def get_screenshot_name_mode(settings: dict[str, Any]) -> str:
+    """截图命名模式：random=时间戳，sequence=序号递增。"""
+    mode = settings.get("screenshot_name_mode", SCREENSHOT_NAME_RANDOM)
+    return mode if mode in (SCREENSHOT_NAME_RANDOM, SCREENSHOT_NAME_SEQUENCE) else SCREENSHOT_NAME_RANDOM
+
+
+def get_screenshot_random_expr(settings: dict[str, Any]) -> str:
+    """随机命名表达式，留空回退默认值。"""
+    raw = settings.get("screenshot_random_expr", "")
+    return raw if isinstance(raw, str) and raw.strip() else DEFAULT_RANDOM_EXPR
+
+
+def get_screenshot_seq_expr(settings: dict[str, Any]) -> str:
+    """序号命名表达式，留空回退默认值。"""
+    raw = settings.get("screenshot_seq_expr", "")
+    return raw if isinstance(raw, str) and raw.strip() else DEFAULT_SEQUENCE_EXPR
+
+
+def get_screenshot_seq_next(settings: dict[str, Any]) -> int | None:
+    """下一个序号；None 表示尚未设置，按截图目录推断。"""
+    value = settings.get("screenshot_seq_next")
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    return None
+
+
 def get_project_dir(settings: dict[str, Any]) -> Path:
     """模板相对路径的基准目录：未设置时回退到 AirPicker 自带的 scripts 目录。"""
     raw = settings.get("project_dir", "")
@@ -142,6 +207,41 @@ def save_toolbar_horizontal(horizontal: bool) -> None:
 def save_resource_dir(path: str) -> None:
     settings = load_settings()
     settings["resource_dir"] = (path or "").strip()
+    _write_settings(settings)
+
+
+def save_screenshot_dir(path: str) -> None:
+    settings = load_settings()
+    settings["screenshot_dir"] = (path or "").strip()
+    _write_settings(settings)
+
+
+def save_screenshot_name_mode(mode: str) -> None:
+    settings = load_settings()
+    settings["screenshot_name_mode"] = (
+        mode if mode in (SCREENSHOT_NAME_RANDOM, SCREENSHOT_NAME_SEQUENCE)
+        else SCREENSHOT_NAME_RANDOM
+    )
+    _write_settings(settings)
+
+
+def save_screenshot_random_expr(expr: str) -> None:
+    settings = load_settings()
+    settings["screenshot_random_expr"] = (expr or "").strip() or DEFAULT_RANDOM_EXPR
+    _write_settings(settings)
+
+
+def save_screenshot_seq_expr(expr: str) -> None:
+    settings = load_settings()
+    settings["screenshot_seq_expr"] = (expr or "").strip() or DEFAULT_SEQUENCE_EXPR
+    _write_settings(settings)
+
+
+def save_screenshot_seq_next(value: int | None) -> None:
+    settings = load_settings()
+    settings["screenshot_seq_next"] = (
+        int(value) if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+    )
     _write_settings(settings)
 
 

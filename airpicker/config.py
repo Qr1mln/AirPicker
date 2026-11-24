@@ -13,6 +13,8 @@ MAX_H = 1200
 DISPLAY_SHARPEN = True
 FPS = 30
 FRAME_INTERVAL_MS = max(1, int(1000 / max(1, FPS)))
+CAPTURE_MAX_FAILURES = 3   # 连续抓帧失败达到该次数后暂停预览，避免刷屏
+CAPTURE_RETRY_MS = 2000    # 暂停后自动重试设备画面的间隔
 
 # -------------------------------- 模板 --------------------------------
 COPY_MODE = "template"  # "touch" -> touch(Template(...))；"template" -> Template(...)
@@ -30,3 +32,4 @@ SWIPE_DURATION = 0.3  # 模拟滑动持续时间（秒）
 ROOT = Path(__file__).resolve().parent.parent
 PICS_DIR = ROOT / "pics"
 SCRIPTS_DIR = ROOT / "scripts"
+SCREENSHOT_DIR = ROOT / "screenshots"

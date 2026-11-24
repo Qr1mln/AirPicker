@@ -5,6 +5,7 @@ from .device_keys import DeviceKeyMixin
 from .gesture import GestureMixin
 from .modes import InteractionModeMixin
 from .preferences import PreferencesMixin
+from .screenshot import ScreenshotMixin
 from .selection import SelectionMixin
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "CoordPickMixin",
     "DeviceKeyMixin",
     "PreferencesMixin",
+    "ScreenshotMixin",
 ]

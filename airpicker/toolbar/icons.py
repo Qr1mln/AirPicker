@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from typing import Callable
 
-from PySide6.QtCore import QPointF
+from PySide6.QtCore import QPointF, QRectF
 from PySide6.QtGui import QPainter, QPolygonF
 
 
@@ -63,6 +63,15 @@ def draw_swipe(p: QPainter, cx: float, cy: float) -> None:
     p.drawLine(ex, ey, ex - 1, ey + 7)
 
 
+def draw_screenshot(p: QPainter, cx: float, cy: float) -> None:
+    p.drawRoundedRect(QRectF(cx - 11, cy - 7, 22, 16), 3, 3)
+    p.drawLine(int(cx - 6), int(cy - 7), int(cx - 4), int(cy - 11))
+    p.drawLine(int(cx - 4), int(cy - 11), int(cx + 4), int(cy - 11))
+    p.drawLine(int(cx + 4), int(cy - 11), int(cx + 6), int(cy - 7))
+    p.drawEllipse(QPointF(cx, cy + 1), 5, 5)
+    p.drawEllipse(QPointF(cx + 7.5, cy - 3.5), 1.2, 1.2)
+
+
 def draw_settings(p: QPainter, cx: float, cy: float) -> None:
     teeth = 8
     step = 2 * math.pi / teeth
@@ -88,5 +97,6 @@ ICON_DRAWERS: dict[str, Callable[[QPainter, float, float], None]] = {
     "coord": draw_coord,
     "select": draw_select,
     "swipe": draw_swipe,
+    "screenshot": draw_screenshot,
     "settings": draw_settings,
 }

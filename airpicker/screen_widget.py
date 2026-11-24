@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QRect, Qt
+from PySide6.QtCore import (
+    QEasingCurve,
+    QPropertyAnimation,
+    QRect,
+    Qt,
+    Property as QtProperty,
+)
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QLabel
 
@@ -28,6 +34,27 @@ class ScreenWidget(QLabel):
         self.setMouseTracking(True)
         self.setAlignment(Qt.AlignCenter)
         self.setMinimumSize(200, 300)
+        self._screenshot_flash = 0.0
+        self._flash_anim = QPropertyAnimation(self, b"screenshotFlash", self)
+        self._flash_anim.setDuration(700)
+        self._flash_anim.setEasingCurve(QEasingCurve.OutQuad)
+
+    def _get_screenshot_flash(self) -> float:
+        return self._screenshot_flash
+
+    def _set_screenshot_flash(self, value: float) -> None:
+        self._screenshot_flash = value
+        self.update()
+
+    screenshotFlash = QtProperty(float, _get_screenshot_flash, _set_screenshot_flash)
+
+    def flash_screenshot(self) -> None:
+        """截图完成后播放一次白色闪光 + 顶部绿色提示。"""
+        self._flash_anim.stop()
+        self._flash_anim.setStartValue(1.0)
+        self._flash_anim.setEndValue(0.0)
+        self._flash_anim.start()
+        self.update()
 
     def mousePressEvent(self, event) -> None:
         mode = self.app.interaction_mode
@@ -148,4 +175,17 @@ class ScreenWidget(QLabel):
             if hint_text:
                 painter.setPen(QColor(255, 200, 60))
                 painter.drawText(bx + pad_x, by + pad_y + line_h + fm.ascent(), hint_text)
+        flash = self._screenshot_flash
+        if flash > 0.01:
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(255, 255, 255, int(110 * flash)))
+            painter.drawRect(self.rect())
+            text = "截图已保存"
+            met = painter.fontMetrics()
+            bw, bh = met.horizontalAdvance(text) + 28, met.height() + 14
+            tx, ty = (self.width() - bw) // 2, 16
+            painter.setBrush(QColor(40, 167, 69, int(235 * flash)))
+            painter.drawRoundedRect(tx, ty, bw, bh, 8, 8)
+            painter.setPen(QColor(255, 255, 255, int(255 * flash)))
+            painter.drawText(tx + 14, ty + 7 + met.ascent(), text)
         painter.end()

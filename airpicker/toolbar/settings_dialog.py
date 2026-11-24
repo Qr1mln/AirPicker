@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""悬浮工具栏设置：横 / 竖排列、资源目录与代码回写表达式。"""
+"""悬浮工具栏设置：横 / 竖排列、资源 / 截图目录、截图命名与代码回写表达式。"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -15,9 +15,14 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QSpinBox,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
+
+from .. import screenshot_names
+from ..config import ROOT, SCREENSHOT_DIR
 
 
 class ToolbarSettingsDialog(QDialog):
@@ -27,6 +32,11 @@ class ToolbarSettingsDialog(QDialog):
         self,
         horizontal: bool,
         resource_dir: Path | str = "",
+        screenshot_dir: Path | str = "",
+        screenshot_name_mode: str = "random",
+        screenshot_random_expr: str = "screen_{datetime}_{ms}",
+        screenshot_seq_expr: str = "screen_{0000}",
+        screenshot_seq_next: int | None = None,
         project_dir: Path | str = "",
         coord_expr: str = "({x}, {y})",
         tpl_expr: str = 'Template(r"{path}", record_pos=({rx}, {ry}), resolution=({rw}, {rh}))',
@@ -82,6 +92,87 @@ class ToolbarSettingsDialog(QDialog):
         dir_row.addWidget(browse)
         form.addRow("资源目录", dir_widget)
 
+        shot_widget = QWidget()
+        shot_row = QHBoxLayout(shot_widget)
+        shot_row.setContentsMargins(0, 0, 0, 0)
+        shot_row.setSpacing(6)
+        self.shot_edit = QLineEdit(str(screenshot_dir))
+        self.shot_edit.setPlaceholderText("留空则使用项目 screenshots 目录")
+        shot_browse = QPushButton("浏览...")
+        shot_browse.clicked.connect(self._browse_screenshot_dir)
+        shot_row.addWidget(self.shot_edit, 1)
+        shot_row.addWidget(shot_browse)
+        form.addRow("截图目录", shot_widget)
+
+        self.name_combo = QComboBox()
+        self.name_combo.addItem("随机", "random")
+        self.name_combo.addItem("序号", "sequence")
+        index = self.name_combo.findData(screenshot_name_mode)
+        self.name_combo.setCurrentIndex(max(0, index))
+        form.addRow("截图命名", self.name_combo)
+
+        self.expr_label = QLabel("随机表达式")
+        self.name_stack = QStackedWidget()
+
+        random_page = QWidget()
+        random_layout = QVBoxLayout(random_page)
+        random_layout.setContentsMargins(0, 0, 0, 0)
+        random_layout.setSpacing(4)
+        self.random_expr_edit = QLineEdit(screenshot_random_expr)
+        self.random_preview = QLabel()
+        self.random_preview.setStyleSheet("color: #6ab04c; font-size: 11px;")
+        random_hint = QLabel(screenshot_names.NAME_HINT)
+        random_hint.setStyleSheet("color: #888; font-size: 11px;")
+        random_hint.setWordWrap(True)
+        random_layout.addWidget(self.random_expr_edit)
+        random_layout.addWidget(self.random_preview)
+        random_layout.addWidget(random_hint)
+
+        seq_page = QWidget()
+        seq_layout = QVBoxLayout(seq_page)
+        seq_layout.setContentsMargins(0, 0, 0, 0)
+        seq_layout.setSpacing(4)
+        self.seq_expr_edit = QLineEdit(screenshot_seq_expr)
+        self.seq_preview = QLabel()
+        self.seq_preview.setStyleSheet("color: #6ab04c; font-size: 11px;")
+        seq_hint = QLabel(screenshot_names.SEQ_HINT)
+        seq_hint.setStyleSheet("color: #888; font-size: 11px;")
+        seq_hint.setWordWrap(True)
+
+        counter_widget = QWidget()
+        counter_row = QHBoxLayout(counter_widget)
+        counter_row.setContentsMargins(0, 0, 0, 0)
+        counter_row.setSpacing(6)
+        self.seq_spin = QSpinBox()
+        self.seq_spin.setRange(0, 999999)
+        initial_next = (
+            screenshot_seq_next if screenshot_seq_next is not None
+            else screenshot_names.next_sequence_number(self._preview_dir(), screenshot_seq_expr)
+        )
+        self.seq_spin.setValue(max(0, int(initial_next)))
+        reset_counter = QPushButton("重置计数")
+        reset_counter.clicked.connect(self._reset_seq_counter)
+        counter_row.addWidget(QLabel("当前计数"))
+        counter_row.addWidget(self.seq_spin, 1)
+        counter_row.addWidget(reset_counter)
+
+        seq_layout.addWidget(self.seq_expr_edit)
+        seq_layout.addWidget(self.seq_preview)
+        seq_layout.addWidget(counter_widget)
+        seq_layout.addWidget(seq_hint)
+
+        self.name_stack.addWidget(random_page)
+        self.name_stack.addWidget(seq_page)
+        form.addRow(self.expr_label, self.name_stack)
+
+        self.random_expr_edit.textChanged.connect(self._update_previews)
+        self.seq_expr_edit.textChanged.connect(self._update_previews)
+        self.seq_spin.valueChanged.connect(self._update_previews)
+        self.shot_edit.textChanged.connect(self._update_previews)
+        self.name_combo.currentIndexChanged.connect(self._on_name_mode_changed)
+        self._on_name_mode_changed()
+        self._update_previews()
+
         self.expr_edit = QLineEdit(coord_expr)
         form.addRow("坐标回写", self.expr_edit)
         coord_hint = QLabel("变量：{x}=X坐标，{y}=Y坐标（可任意组合，如 ({x}, {y})）")
@@ -132,6 +223,54 @@ class ToolbarSettingsDialog(QDialog):
 
     def resource_dir(self) -> str:
         return self.dir_edit.text().strip()
+
+    def _browse_screenshot_dir(self) -> None:
+        start = self.shot_edit.text().strip()
+        chosen = QFileDialog.getExistingDirectory(self, "选择截图目录", start)
+        if chosen:
+            self.shot_edit.setText(chosen)
+
+    def screenshot_dir(self) -> str:
+        return self.shot_edit.text().strip()
+
+    def _reset_seq_counter(self) -> None:
+        self.seq_spin.setValue(0)
+
+    def _on_name_mode_changed(self) -> None:
+        is_sequence = self.name_combo.currentData() == screenshot_names.SCREENSHOT_NAME_SEQUENCE
+        self.name_stack.setCurrentIndex(1 if is_sequence else 0)
+        self.expr_label.setText("序号表达式" if is_sequence else "随机表达式")
+
+    def _preview_dir(self) -> Path:
+        raw = self.shot_edit.text().strip()
+        if not raw:
+            return SCREENSHOT_DIR
+        path = Path(raw).expanduser()
+        return path if path.is_absolute() else (ROOT / path)
+
+    def _update_previews(self) -> None:
+        out_dir = self._preview_dir()
+        random_name = screenshot_names.preview_name(
+            self.random_expr_edit.text(), screenshot_names.SCREENSHOT_NAME_RANDOM, out_dir
+        )
+        seq_name = screenshot_names.preview_name(
+            self.seq_expr_edit.text(), screenshot_names.SCREENSHOT_NAME_SEQUENCE,
+            out_dir, self.seq_spin.value(),
+        )
+        self.random_preview.setText(f"预览：{random_name}")
+        self.seq_preview.setText(f"预览：{seq_name}")
+
+    def screenshot_name_mode(self) -> str:
+        return str(self.name_combo.currentData() or screenshot_names.SCREENSHOT_NAME_RANDOM)
+
+    def screenshot_random_expr(self) -> str:
+        return self.random_expr_edit.text().strip()
+
+    def screenshot_seq_expr(self) -> str:
+        return self.seq_expr_edit.text().strip()
+
+    def screenshot_seq_next(self) -> int:
+        return int(self.seq_spin.value())
 
     def _browse_project_dir(self) -> None:
         start = self.project_edit.text().strip()
