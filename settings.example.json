@@ -1,0 +1,17 @@
+{
+  "toolbar": {
+    "horizontal": false
+  },
+  "resource_dir": "",
+  "screenshot_dir": "",
+  "screenshot_name_mode": "random",
+  "screenshot_random_expr": "screen_{datetime}_{ms}",
+  "screenshot_seq_expr": "screen_{0000}",
+  "screenshot_seq_next": null,
+  "project_dir": "",
+  "coord_expr": "({x}, {y})",
+  "tpl_expr": "Template(r\"{path}\", record_pos=({rx}, {ry}), resolution=({rw}, {rh}))",
+  "swipe_expr": "swipe(({x1}, {y1}), ({x2}, {y2}))",
+  "lock_ratio": true,
+  "window_size": null
+}
