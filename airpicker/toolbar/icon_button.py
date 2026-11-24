@@ -60,12 +60,20 @@ class IconButton(QWidget):
         self._hover = 0.0
         self._press = 0.0
         self._rotation = 0.0
+        self._active = False
         self._press_pos: QPoint | None = None
         self._anims: dict[str, QPropertyAnimation] = {}
 
     def set_kind(self, kind: str) -> None:
         if self.kind != kind:
             self.kind = kind
+            self.update()
+
+    def set_active(self, active: bool) -> None:
+        """面板展开时保持高亮，收起时恢复普通亮度。"""
+        active = bool(active)
+        if self._active != active:
+            self._active = active
             self.update()
 
     def _get_hover(self) -> float:
@@ -137,9 +145,10 @@ class IconButton(QWidget):
         p.setRenderHint(QPainter.Antialiasing)
         cx, cy = self.width() / 2, self.height() / 2
 
-        if self._hover > 0.01:
+        if self._hover > 0.01 or self._active:
             p.setPen(Qt.NoPen)
-            p.setBrush(QColor(255, 255, 255, int(10 + 30 * self._hover)))
+            alpha = 10 + 30 * self._hover + (16 if self._active else 0)
+            p.setBrush(QColor(255, 255, 255, int(alpha)))
             p.drawRoundedRect(self.rect().adjusted(2, 2, -2, -2), 6, 6)
 
         p.save()
@@ -150,7 +159,7 @@ class IconButton(QWidget):
             p.rotate(self._rotation)
         p.translate(-cx, -cy)
 
-        shade = int(235 + 20 * max(self._hover, self._press))
+        shade = 255 if self._active else int(235 + 20 * max(self._hover, self._press))
         pen = QPen(QColor(shade, shade, shade), 2)
         pen.setCapStyle(Qt.RoundCap)
         p.setPen(pen)

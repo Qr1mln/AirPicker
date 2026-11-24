@@ -8,12 +8,14 @@ from PySide6.QtCore import (
     QEasingCurve,
     QPropertyAnimation,
     QRect,
+    QTimer,
     Qt,
     Property as QtProperty,
 )
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QLabel
 
+from . import image_utils
 from .config import MODE_GESTURE, MODE_PICK_COORD, MODE_SELECT, MODE_SWIPE
 
 if TYPE_CHECKING:
@@ -31,6 +33,7 @@ class ScreenWidget(QLabel):
     def __init__(self, parent: "MainWindow"):
         super().__init__(parent)
         self.app = parent
+        self.setStyleSheet("background: #1e1e1e; color: #dddddd;")
         self.setMouseTracking(True)
         self.setAlignment(Qt.AlignCenter)
         self.setMinimumSize(200, 300)
@@ -38,6 +41,20 @@ class ScreenWidget(QLabel):
         self._flash_anim = QPropertyAnimation(self, b"screenshotFlash", self)
         self._flash_anim.setDuration(700)
         self._flash_anim.setEasingCurve(QEasingCurve.OutQuad)
+        self._highlight_point: tuple[int, int] | None = None
+        self._highlight_timer = QTimer(self)
+        self._highlight_timer.setSingleShot(True)
+        self._highlight_timer.timeout.connect(self._clear_highlight)
+
+    def show_target(self, x: int, y: int, duration_ms: int = 1500) -> None:
+        """在原图坐标处画绿色高亮框，持续一段时间后自动清除。"""
+        self._highlight_point = (x, y)
+        self._highlight_timer.start(duration_ms)
+        self.update()
+
+    def _clear_highlight(self) -> None:
+        self._highlight_point = None
+        self.update()
 
     def _get_screenshot_flash(self) -> float:
         return self._screenshot_flash
@@ -141,6 +158,20 @@ class ScreenWidget(QLabel):
             painter.setPen(pen)
             painter.setBrush(Qt.transparent)
             painter.drawRect(rect)
+        if (
+            self._highlight_point is not None
+            and self.app.latest_bgr is not None
+            and self.pixmap() is not None
+        ):
+            hx, hy = self._highlight_point
+            center = image_utils.source_to_view(
+                hx, hy, self.app.latest_bgr, self.pixmap(), self.width(), self.height()
+            )
+            radius = max(18, min(40, int(min(self.width(), self.height()) * 0.05)))
+            target_rect = QRect(center.x() - radius, center.y() - radius, radius * 2, radius * 2)
+            painter.setPen(QPen(QColor(40, 167, 69), 3))
+            painter.setBrush(Qt.transparent)
+            painter.drawRect(target_rect)
         pos = self.app.cursor_pos
         if pos is not None and self.app.latest_bgr is not None:
             x, y = self.app.to_source(pos)

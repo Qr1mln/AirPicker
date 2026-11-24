@@ -73,12 +73,9 @@ class DeviceConnectionMixin:
             return
         device = self.device
         self.device = None
-        self.timer.stop()
-        self._device_retry_timer.stop()
+        self._stop_capture()
         self.latest_bgr = None
         self.frozen_bgr = None
-        self._capture_failures = 0
-        self._waiting_device = False
         self.screen.setText("未连接设备\n请在设置中点击「连接设备」")
         self.setWindowTitle("AirPicker · 未连接设备")
         release_device(device)

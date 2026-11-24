@@ -9,14 +9,9 @@ from PySide6.QtCore import QPoint, QTimer, Signal
 from PySide6.QtWidgets import QMainWindow
 
 from . import image_utils, settings
-from .config import (
-    CAPTURE_MAX_FAILURES,
-    CAPTURE_RETRY_MS,
-    FRAME_INTERVAL_MS,
-    MAX_H,
-    MAX_W,
-    MODE_GESTURE,
-)
+from .ai import AIAddon
+from .capture_worker import CaptureWorker
+from .config import MAX_H, MAX_W, MODE_GESTURE
 from .interactions import (
     CoordPickMixin,
     DeviceConnectionMixin,
@@ -62,8 +57,7 @@ class MainWindow(
         self._preview_started = False
         self._preview_paused = False
         self._closing = False
-        self._capture_failures = 0
-        self._waiting_device = False
+        self._capture_worker: CaptureWorker | None = None
         self._toolbar_dragging = False
         self._window_moving = False
         self._screen_wh = tuple(screen_wh) if screen_wh else None
@@ -101,17 +95,14 @@ class MainWindow(
         self.toolbar.back_clicked = self.device_back
         self.toolbar.home_clicked = self.device_home
 
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.on_frame)
+        self.ai_addon = AIAddon(self)
+
         self._move_resume_timer = QTimer(self)
         self._move_resume_timer.setSingleShot(True)
         self._move_resume_timer.timeout.connect(self._on_move_resume)
         self._aspect_timer = QTimer(self)
         self._aspect_timer.setSingleShot(True)
         self._aspect_timer.timeout.connect(self._apply_aspect_ratio)
-        self._device_retry_timer = QTimer(self)
-        self._device_retry_timer.setSingleShot(True)
-        self._device_retry_timer.timeout.connect(self._retry_device)
 
         if device is not None:
             method = getattr(getattr(device, "screen_proxy", None), "method_name", "MINICAP")
@@ -128,26 +119,44 @@ class MainWindow(
         if settings.get_auto_connect(settings.load_settings()):
             QTimer.singleShot(0, self.connect_device)
 
+    def _sync_view_params(self) -> None:
+        if self._capture_worker is not None:
+            self._capture_worker.set_view_params(
+                self.screen.width(), self.screen.height(),
+                self.screen.devicePixelRatioF() or 1.0, self._lock_ratio,
+            )
+
     def _maybe_start_preview(self) -> None:
         if (
             self._preview_started
             and self.device is not None
             and not self._preview_paused
-            and not self._waiting_device
             and not self._closing
-            and not self.timer.isActive()
+            and self._capture_worker is None
         ):
-            self.timer.start(FRAME_INTERVAL_MS)
+            worker = CaptureWorker(self.device, self)
+            worker.frame_ready.connect(self._on_frame_ready)
+            worker.capture_failed.connect(self._on_capture_failed)
+            worker.device_waiting.connect(self._on_device_waiting)
+            worker.device_recovered.connect(self._on_device_recovered)
+            self._capture_worker = worker
+            self._sync_view_params()
+            worker.start()
+
+    def _stop_capture(self) -> None:
+        worker = self._capture_worker
+        self._capture_worker = None
+        if worker is not None:
+            worker.requestInterruption()
+            # snapshot 可能正阻塞在 minicap recv，超时后由 worker 自行退出
+            worker.wait(3000)
 
     def set_preview_paused(self, paused: bool) -> None:
-        if not paused and (self._waiting_device or self._closing):
+        if not paused and self._closing:
             return
         self._preview_paused = paused
-        if paused:
-            if self.timer.isActive():
-                self.timer.stop()
-        else:
-            self._maybe_start_preview()
+        if self._capture_worker is not None:
+            self._capture_worker.set_paused(paused)
 
     def set_toolbar_dragging(self, dragging: bool) -> None:
         self._toolbar_dragging = dragging
@@ -171,33 +180,16 @@ class MainWindow(
         super().resizeEvent(event)
         if hasattr(self, "toolbar"):
             self.toolbar.constrain_to_window()
+        self._sync_view_params()
         if self._resizing_aspect:
             return
         self._aspect_timer.start(120)
 
     def _apply_aspect_ratio(self) -> None:
-        """拖拽停止后按比例校正一次并保存尺寸，避免在 resizeEvent 内同步 resize 造成抖动。"""
+        """保存用户手动调整后的窗口尺寸；停靠面板模式下不再强制校正比例。"""
         cw, ch = self.width(), self.height()
         if cw <= 0 or ch <= 0:
             return
-
-        if self._lock_ratio and self._screen_wh:
-            src_w, src_h = self._screen_wh
-            if src_w > 0 and src_h > 0:
-                w_by_h = max(1, round(ch * src_w / src_h))
-                h_by_w = max(1, round(cw * src_h / src_w))
-                if abs(w_by_h - cw) <= abs(h_by_w - ch):
-                    target = (w_by_h, ch)
-                else:
-                    target = (cw, h_by_w)
-                if target != (cw, ch):
-                    self._resizing_aspect = True
-                    try:
-                        self.resize(*target)
-                    finally:
-                        self._resizing_aspect = False
-                    cw, ch = target
-
         settings.save_window_size(cw, ch)
 
     def _aspect_size(self, w: int, h: int) -> tuple[int, int]:
@@ -214,57 +206,27 @@ class MainWindow(
         self._maybe_resume_preview()
 
     # -------- 抓帧与渲染 --------
-    def on_frame(self) -> None:
-        if self._closing or self.dragging or self._preview_paused:
+    def _on_frame_ready(self, bgr, display, dpr: float) -> None:
+        """worker 已完成 snapshot 与缩放，UI 线程只做 QPixmap 渲染。"""
+        if self._closing or self._preview_paused:
             return
-        try:
-            raw = self.device.snapshot()
-        except Exception as exc:
-            self._handle_capture_error(exc)
-            return
-        self._capture_failures = 0
-        arr = image_utils.to_bgr(raw)
-        if arr is None:
-            return
-        self.latest_bgr = arr
-
-        dpr = self.screen.devicePixelRatioF() or 1.0
-        display = image_utils.fit_frame(
-            arr, max(1, self.screen.width()), max(1, self.screen.height()), dpr
-        )
+        self.latest_bgr = bgr
         self.screen.setPixmap(image_utils.to_pixmap(display, dpr))
-        h, w = arr.shape[:2]
+        h, w = bgr.shape[:2]
         self._sync_window_aspect(w, h)
 
         self.frame_times.append(time.perf_counter())
         self.frame_times = self.frame_times[-20:]
         self._update_title()
 
-    def _handle_capture_error(self, exc: Exception) -> None:
-        """只提示首次异常，连续失败后暂停预览并等待设备恢复。"""
-        self._capture_failures += 1
-        if self._capture_failures == 1:
-            detail = str(exc).strip() or type(exc).__name__
-            print(f"[警告] 截图异常：{detail}")
-        if self._capture_failures >= CAPTURE_MAX_FAILURES and not self._waiting_device:
-            self._waiting_device = True
-            self.set_preview_paused(True)
-            self._device_retry_timer.start(CAPTURE_RETRY_MS)
-            print("[信息] 连续截图失败，已暂停预览；设备恢复后将自动继续")
+    def _on_capture_failed(self, detail: str) -> None:
+        print(f"[警告] 截图异常：{detail}")
 
-    def _retry_device(self) -> None:
-        """后台低频探测设备，恢复后自动继续预览，不刷日志。"""
-        if self._closing or not self._waiting_device:
-            return
-        try:
-            self.device.snapshot()
-        except Exception:
-            self._device_retry_timer.start(CAPTURE_RETRY_MS)
-            return
-        self._waiting_device = False
-        self._capture_failures = 0
+    def _on_device_waiting(self) -> None:
+        print("[信息] 连续截图失败，已降频等待设备恢复")
+
+    def _on_device_recovered(self) -> None:
         print("[信息] 设备画面已恢复，继续预览")
-        self._maybe_resume_preview()
 
     def _fps(self) -> int:
         if len(self.frame_times) < 2:
@@ -293,10 +255,9 @@ class MainWindow(
     def closeEvent(self, event) -> None:
         self._closing = True
         self._preview_started = False
-        self.timer.stop()
         self._move_resume_timer.stop()
         self._aspect_timer.stop()
-        self._device_retry_timer.stop()
+        self._stop_capture()
         if self._connect_worker is not None:
             self._connect_worker.requestInterruption()
         settings.save_window_size(max(1, self.width()), max(1, self.height()))

@@ -23,6 +23,7 @@ class FloatingToolbar(QFrame):
         self.swipe_clicked = None
         self.back_clicked = None
         self.home_clicked = None
+        self.ai_clicked = None
         self._horizontal = False
         self.setStyleSheet(
             "FloatingToolbar { background: #1e1e1e; border: 1px solid #3a3a3a; }"
@@ -59,10 +60,13 @@ class FloatingToolbar(QFrame):
             ("coord", self._pick_coord),
             ("select", self._select_template),
             ("swipe", self._start_swipe),
+            ("ai", self._toggle_ai_panel),
         ):
             btn = IconButton(kind, self._inner)
             btn.setObjectName("toolbarIcon")
             btn.clicked = callback
+            if kind == "ai":
+                self._ai_btn = btn
             self._inner_layout.addWidget(btn)
         self._apply_orientation()
 
@@ -102,6 +106,13 @@ class FloatingToolbar(QFrame):
         if self.swipe_clicked:
             self.swipe_clicked()
 
+    def _toggle_ai_panel(self) -> None:
+        if self.ai_clicked:
+            self.ai_clicked()
+
+    def set_ai_active(self, active: bool) -> None:
+        self._ai_btn.set_active(active)
+
     def is_horizontal(self) -> bool:
         return self._horizontal
 
@@ -115,16 +126,18 @@ class FloatingToolbar(QFrame):
         self._separator.set_horizontal(self._horizontal)
         if self._horizontal:
             self._inner_layout.setDirection(QBoxLayout.LeftToRight)
-            self.setFixedSize(392, 60)
+            self.setFixedSize(432, 60)
         else:
             self._inner_layout.setDirection(QBoxLayout.TopToBottom)
-            self.setFixedSize(56, 432)
+            self.setFixedSize(56, 476)
 
     def _clamp_pos(self, pos: QPoint) -> QPoint:
         parent = self.parentWidget()
         if parent is None:
             return pos
-        x = max(0, min(pos.x(), parent.width() - self.width()))
+        dock_w = getattr(parent, "_right_dock_width", 0) or 0
+        available_w = max(self.width(), parent.width() - dock_w)
+        x = max(0, min(pos.x(), available_w - self.width()))
         y = max(0, min(pos.y(), parent.height() - self.height()))
         return QPoint(x, y)
 
@@ -132,6 +145,7 @@ class FloatingToolbar(QFrame):
         target = self._clamp_pos(self.pos())
         if target != self.pos():
             self.move(target)
+        self.raise_()
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.LeftButton:

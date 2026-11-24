@@ -22,10 +22,7 @@ def main() -> None:
     app = QApplication([])
     window = MainWindow()
     window.show()
-    window.toolbar.move(
-        window.width() - window.toolbar.width() - 20,
-        60,
-    )
+    window.toolbar.move(20, 60)
     window.toolbar.constrain_to_window()
     QTimer.singleShot(0, window.start)
     app.exec()

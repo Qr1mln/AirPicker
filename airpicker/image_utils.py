@@ -24,15 +24,22 @@ def to_bgr(raw) -> np.ndarray | None:
     return arr
 
 
-def fit_frame(arr: np.ndarray, view_w: int, view_h: int, dpr: float) -> np.ndarray:
-    """按显示区域等比缩放并可选锐化。"""
+def fit_frame(
+    arr: np.ndarray, view_w: int, view_h: int, dpr: float, keep_ratio: bool = True
+) -> np.ndarray:
+    """按显示区域缩放并可选锐化；keep_ratio=False 时拉伸填满画面区。"""
     h, w = arr.shape[:2]
-    scale = min((view_w * dpr) / w, (view_h * dpr) / h)
-    if scale < 1.0:
-        dw, dh = max(1, int(round(w * scale))), max(1, int(round(h * scale)))
-        display = cv2.resize(arr, (dw, dh), interpolation=cv2.INTER_AREA)
+    if keep_ratio:
+        scale = min((view_w * dpr) / w, (view_h * dpr) / h)
+        if scale < 1.0:
+            dw, dh = max(1, int(round(w * scale))), max(1, int(round(h * scale)))
+            display = cv2.resize(arr, (dw, dh), interpolation=cv2.INTER_AREA)
+        else:
+            display = arr
     else:
-        display = arr
+        dw, dh = max(1, int(view_w * dpr)), max(1, int(view_h * dpr))
+        interpolation = cv2.INTER_AREA if dw < w or dh < h else cv2.INTER_LINEAR
+        display = cv2.resize(arr, (dw, dh), interpolation=interpolation)
     if DISPLAY_SHARPEN:
         blurred = cv2.GaussianBlur(display, (0, 0), 1.0)
         display = cv2.addWeighted(display, 1.25, blurred, -0.25, 0)
@@ -62,3 +69,20 @@ def view_to_source(
     sx = int(round((pos.x() - ox) / iw * w))
     sy = int(round((pos.y() - oy) / ih * h))
     return max(0, min(w - 1, sx)), max(0, min(h - 1, sy))
+
+
+def source_to_view(
+    x: int, y: int, frame: np.ndarray | None, pixmap: QPixmap | None,
+    view_w: int, view_h: int,
+) -> QPoint:
+    """把设备原图坐标换算成画面上的显示坐标。"""
+    if pixmap is None or frame is None:
+        return QPoint(0, 0)
+    h, w = frame.shape[:2]
+    dpr = pixmap.devicePixelRatioF() or 1.0
+    iw, ih = pixmap.width() / dpr, pixmap.height() / dpr
+    ox = (view_w - iw) / 2
+    oy = (view_h - ih) / 2
+    vx = int(round(ox + x / w * iw))
+    vy = int(round(oy + y / h * ih))
+    return QPoint(vx, vy)

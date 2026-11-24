@@ -5,8 +5,8 @@ from __future__ import annotations
 import math
 from typing import Callable
 
-from PySide6.QtCore import QPointF, QRectF
-from PySide6.QtGui import QPainter, QPolygonF
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QFont, QPainter, QPolygonF
 
 
 def draw_refresh(p: QPainter, cx: float, cy: float) -> None:
@@ -106,6 +106,15 @@ def draw_settings(p: QPainter, cx: float, cy: float) -> None:
     p.drawEllipse(QPointF(cx, cy), 3.0, 3.0)
 
 
+def draw_ai(p: QPainter, cx: float, cy: float) -> None:
+    """白色加粗字母「AI」，不用图形符号。"""
+    font = QFont(p.font())
+    font.setBold(True)
+    font.setPointSize(11)
+    p.setFont(font)
+    p.drawText(QRectF(cx - 14, cy - 12, 28, 24), Qt.AlignCenter, "AI")
+
+
 ICON_DRAWERS: dict[str, Callable[[QPainter, float, float], None]] = {
     "refresh": draw_refresh,
     "connect": draw_connect,
@@ -117,4 +126,5 @@ ICON_DRAWERS: dict[str, Callable[[QPainter, float, float], None]] = {
     "swipe": draw_swipe,
     "screenshot": draw_screenshot,
     "settings": draw_settings,
+    "ai": draw_ai,
 }

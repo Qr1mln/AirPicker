@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import screenshot_names, settings
+from ..ai import AISettingsTab
 from ..config import ROOT, SCREENSHOT_DIR
 from ..connection import (
     CAP_LABELS,
@@ -84,7 +85,8 @@ class ToolbarSettingsDialog(QDialog):
         gen_layout = QVBoxLayout(general_tab)
         gen_layout.setContentsMargins(0, 0, 0, 0)
         tabs.addTab(conn_tab, "设备连接")
-        tabs.addTab(general_tab, "界面与取码")
+        tabs.addTab(general_tab, "通用设置")
+        tabs.addTab(AISettingsTab(self), "AI 设置")
 
         conn_cfg = normalize_connection(connection)
         conn_group = QGroupBox("连接设置")
@@ -210,7 +212,7 @@ class ToolbarSettingsDialog(QDialog):
         self.combo.setCurrentIndex(1 if horizontal else 0)
         form.addRow("工具栏排列", self.combo)
 
-        self.aspect_check = QCheckBox("窗口缩放时保持画面宽高比")
+        self.aspect_check = QCheckBox("设备画面保持宽高比（取消则拉伸填满画面区）")
         self.aspect_check.setChecked(bool(lock_ratio))
         form.addRow("", self.aspect_check)
 
