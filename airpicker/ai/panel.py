@@ -6,17 +6,20 @@ from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QDockWidget,
     QHBoxLayout,
     QListWidget,
     QMenu,
     QPushButton,
+    QSpinBox,
     QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
 from . import config
+from .log_fields import classify, is_visible, notifier
 from .scene_cards import SceneCardsMixin
 from .scene_editor import SceneEditorMixin
 
@@ -53,12 +56,16 @@ class AIPanel(SceneCardsMixin, SceneEditorMixin, QObject):
 
     collapse_requested = Signal()
     match_requested = Signal()
+    auto_loop_toggled = Signal(bool)
+    loop_interval_changed = Signal(int)
 
     def __init__(self, window: QWidget):
         super().__init__(window)
         self.window = window
         self.recognition_frame = None  # 最近一次界面识别使用的画面帧，由 AIAddon 写入
+        self._log_entries: list[tuple[str, str]] = []  # (字段, 文本)，保留用于重渲染
         self._docks: list[QDockWidget] = []
+        notifier.changed.connect(self._rerender_logs)
         self._create_docks()
         extra = (
             "QMainWindow::separator, QSplitter::handle { background: #3a3a3a; }"
@@ -141,8 +148,31 @@ class AIPanel(SceneCardsMixin, SceneEditorMixin, QObject):
         self.match_button.clicked.connect(self.match_requested.emit)
         for button in (add_button, edit_button, self.match_button):
             row.addWidget(button)
+        self.match_execute_check = QCheckBox("匹配后执行动作")
+        self.match_execute_check.setToolTip("匹配到场景后自动执行该场景配置的动作")
+        self.match_execute_check.setChecked(bool(config.load()["match_execute_action"]))
+        self.match_execute_check.toggled.connect(self._on_match_execute_toggled)
+        row.addWidget(self.match_execute_check)
         row.addStretch(1)
         layout.addLayout(row)
+
+        loop_row = QHBoxLayout()
+        self.auto_loop_check = QCheckBox("自动循环")
+        self.auto_loop_check.setToolTip("开启后按间隔反复执行「匹配场景」")
+        cfg = config.load()
+        self.auto_loop_check.setChecked(bool(cfg["auto_loop"]))
+        self.loop_interval_spin = QSpinBox()
+        self.loop_interval_spin.setRange(200, 60000)
+        self.loop_interval_spin.setSingleStep(100)
+        self.loop_interval_spin.setValue(int(cfg["auto_loop_interval_ms"]))
+        self.loop_interval_spin.setSuffix(" ms")
+        self.loop_interval_spin.setToolTip("每轮匹配结束后的等待时间")
+        self.auto_loop_check.toggled.connect(self._on_auto_loop_toggled)
+        self.loop_interval_spin.valueChanged.connect(self._on_loop_interval_changed)
+        loop_row.addWidget(self.auto_loop_check)
+        loop_row.addWidget(self.loop_interval_spin)
+        loop_row.addStretch(1)
+        layout.addLayout(loop_row)
         self._refresh_scene_list()
 
     def _build_log_pane(self) -> None:
@@ -174,8 +204,17 @@ class AIPanel(SceneCardsMixin, SceneEditorMixin, QObject):
             if s.get("name") and s.get("feature")
         ]
 
-    def append_log(self, text: str) -> None:
-        """纯文本追加日志，避免把模型输出当 HTML 解析；自动滚到底部。"""
+    def append_log(self, text: str, field: str | None = None) -> None:
+        """追加日志，按字段配置决定是否显示；自动滚到底部。
+
+        field 为 None 时按文本前缀自动分类，兼容旧调用。
+        """
+        resolved = field or classify(text)
+        self._log_entries.append((resolved, text))
+        if is_visible(resolved):
+            self._insert_log_text(text)
+
+    def _insert_log_text(self, text: str) -> None:
         cursor = self.log_view.textCursor()
         cursor.movePosition(QTextCursor.End)
         self.log_view.setTextCursor(cursor)
@@ -183,6 +222,23 @@ class AIPanel(SceneCardsMixin, SceneEditorMixin, QObject):
         cursor = self.log_view.textCursor()
         cursor.movePosition(QTextCursor.End)
         self.log_view.setTextCursor(cursor)
+
+    def _rerender_logs(self) -> None:
+        self.log_view.clear()
+        for field, text in self._log_entries:
+            if is_visible(field):
+                self._insert_log_text(text)
+
+    def _on_match_execute_toggled(self, checked: bool) -> None:
+        config.save(match_execute_action=bool(checked))
+
+    def _on_auto_loop_toggled(self, checked: bool) -> None:
+        config.save(auto_loop=bool(checked))
+        self.auto_loop_toggled.emit(bool(checked))
+
+    def _on_loop_interval_changed(self, value: int) -> None:
+        config.save(auto_loop_interval_ms=int(value))
+        self.loop_interval_changed.emit(int(value))
 
     # -------- 日志右键菜单 --------
     def _show_log_menu(self, pos) -> None:
@@ -195,3 +251,4 @@ class AIPanel(SceneCardsMixin, SceneEditorMixin, QObject):
             self.log_view.copy()
         elif action == clear_action:
             self.log_view.clear()
+            self._log_entries.clear()

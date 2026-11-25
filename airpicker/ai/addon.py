@@ -22,6 +22,10 @@ class AIAddon(QObject):
         self._worker: QThread | None = None
         self._last_analysis = ""
         self._pending_scenes: list[dict[str, str]] | None = None
+        self._loop_timer = QTimer(self)
+        self._loop_timer.setSingleShot(True)
+        self._loop_timer.setInterval(int(config.load()["auto_loop_interval_ms"]))
+        self._loop_timer.timeout.connect(self._loop_tick)
         self._visible_pref = bool(config.load()["panel_visible"])
         self._setting_visibility = False
         self._restoring_state = False
@@ -33,6 +37,10 @@ class AIAddon(QObject):
         self.docks: list[QDockWidget] = self.panel.docks
         self.panel.recognize_button.clicked.connect(self.start_recognition)
         self.panel.match_requested.connect(self.start_matching)
+        self.panel.auto_loop_toggled.connect(self._on_auto_loop_toggled)
+        self.panel.loop_interval_changed.connect(self._on_loop_interval_changed)
+        if self.panel.auto_loop_check.isChecked():
+            QTimer.singleShot(0, self._start_loop)
         for dock in self.docks:
             dock.visibilityChanged.connect(self._on_dock_visibility)
             dock.topLevelChanged.connect(self._on_dock_changed)
@@ -109,6 +117,7 @@ class AIAddon(QObject):
         if obj is self.window:
             kind = event.type()
             if kind == QEvent.Close:
+                self._loop_timer.stop()
                 self._save_state()
                 config.save(panel_visible=self._visible_pref)
                 if self._worker is not None and self._worker.isRunning():
@@ -139,6 +148,39 @@ class AIAddon(QObject):
         config.save(panel_visible=visible)
         self._sync_dock_width()
         self._state_timer.start(100)
+
+    # -------- 自动循环：定时重复匹配场景 --------
+    def _on_auto_loop_toggled(self, enabled: bool) -> None:
+        if enabled:
+            self._start_loop()
+        else:
+            self._loop_timer.stop()
+            self.panel.append_log("[自动循环] 已停止（当前轮自然结束）\n" + "-" * 28)
+
+    def _on_loop_interval_changed(self, value: int) -> None:
+        self._loop_timer.setInterval(int(value))
+        if self._loop_timer.isActive():
+            self._loop_timer.start()
+
+    def _start_loop(self) -> None:
+        if not self.panel.auto_loop_check.isChecked():
+            return
+        self.panel.append_log(
+            f"[自动循环] 已开启，间隔 {self._loop_timer.interval()} ms\n" + "-" * 28
+        )
+        self._loop_tick()
+
+    def _loop_tick(self) -> None:
+        """每轮结束后触发：空闲则发起一次匹配，结束后再排下一轮。"""
+        if not self.panel.auto_loop_check.isChecked():
+            return
+        if self._worker is not None and self._worker.isRunning():
+            return
+        self.start_matching()
+
+    def _schedule_next_loop(self) -> None:
+        if self.panel.auto_loop_check.isChecked():
+            self._loop_timer.start()
 
     # -------- 第一步：识别界面 --------
     def start_recognition(self) -> None:
@@ -181,6 +223,7 @@ class AIAddon(QObject):
         scenes = self._scenes_from_table()
         if not scenes:
             self.panel.append_log("[提示] 场景配置为空，请填写场景名称和描述")
+            self._schedule_next_loop()
             return
         worker = recognize_screen(
             self.window,
@@ -193,6 +236,7 @@ class AIAddon(QObject):
         )
         if worker is None:
             self.panel.append_log("[识别失败] 暂无画面，无法识别界面")
+            self._schedule_next_loop()
             return
         self._pending_scenes = scenes
         self._worker = worker
@@ -222,6 +266,15 @@ class AIAddon(QObject):
         self.panel.append_log(
             f"匹配场景：{scene or '无'} · 耗时 {elapsed:.1f}s\n{'-' * 28}"
         )
+        if not scene or not self.panel.match_execute_check.isChecked():
+            return
+        matched = next(
+            (s for s in config.load_scenes() if s.get("name") == scene), None
+        )
+        if matched is None:
+            self.panel.append_log(f"[执行动作] 未找到场景「{scene}」的配置\n{'-' * 28}")
+            return
+        self.panel.run_scene_actions(matched, notify=False)
 
     def _log_prompt(self, title: str, prompt: str) -> None:
         self.panel.append_log(f"[{title}提示词]\n{prompt}\n{'-' * 28}")
@@ -244,3 +297,4 @@ class AIAddon(QObject):
         self.panel.recognize_button.setEnabled(True)
         self.panel.match_button.setText("匹配场景")
         self.panel.match_button.setEnabled(True)
+        self._schedule_next_loop()

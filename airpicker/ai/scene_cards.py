@@ -9,12 +9,14 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QListWidgetItem,
+    QMessageBox,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from . import config
+from .actions import dispatch_command, execute_actions, parse_actions
 
 
 class SceneCardsMixin:
@@ -73,6 +75,7 @@ class SceneCardsMixin:
         name.setStyleSheet("color: #ffffff; font-weight: bold;")
         top.addWidget(name, 1)
         for text, tip, callback in (
+            ("▶", "执行该场景动作", lambda: self._execute_scene(index)),
             ("↑", "上移", lambda: self._move_scene(index, -1)),
             ("↓", "下移", lambda: self._move_scene(index, 1)),
             ("×", "删除", lambda: self._delete_scene(index)),
@@ -94,15 +97,85 @@ class SceneCardsMixin:
         desc.setStyleSheet("color: #aaaaaa; font-size: 11px;")
         desc.setWordWrap(True)
         body.addWidget(desc)
+
+        actions, errors = parse_actions(scene.get("action", ""))
+        action_text = (
+            "；".join(a.summary() for a in actions)
+            if not errors else f"动作格式错误：{errors[0]}"
+        ) or "（无动作）"
+        action_label = QLabel(f"动作: {action_text}")
+        action_label.setStyleSheet(
+            f"color: {'#f44336' if errors else '#6ab04c'}; font-size: 11px;"
+        )
+        action_label.setWordWrap(True)
+        body.addWidget(action_label)
         row.addLayout(body, 1)
         return card
 
     @staticmethod
     def _plain_scenes() -> list[dict[str, str]]:
         return [
-            {"name": s.get("name", ""), "feature": s.get("feature", ""), "image": s.get("image", "")}
+            {
+                "name": s.get("name", ""),
+                "feature": s.get("feature", ""),
+                "image": s.get("image", ""),
+                "action": s.get("action", ""),
+            }
             for s in config.load_scenes()
         ]
+
+    def run_scene_actions(self, scene: dict, *, notify: bool = True) -> bool:
+        """解析并执行场景动作，返回是否成功执行。notify=False 时只写日志不弹窗。"""
+        name = scene.get("name", "")
+        actions, errors = parse_actions(scene.get("action", ""))
+        if errors:
+            message = "\n".join(errors)
+            self.append_log(f"[执行失败] 场景「{name}」动作格式错误：{message}")
+            if notify:
+                QMessageBox.warning(self.window, "动作格式错误", message)
+            return False
+        if not actions:
+            message = f"场景「{name}」尚未配置动作"
+            self.append_log(f"[执行动作] {message}")
+            if notify:
+                QMessageBox.information(self.window, "提示", message)
+            return False
+        device = getattr(self.window, "device", None)
+        if device is None:
+            message = "尚未连接设备，请先连接设备"
+            self.append_log(f"[执行失败] {message}")
+            if notify:
+                QMessageBox.warning(self.window, "提示", message)
+            return False
+
+        def on_dispatch(done: int, total: int, action) -> None:
+            self.append_log(
+                f"[下发设备] {dispatch_command(action)}（{done}/{total}）"
+            )
+
+        def on_step(done: int, total: int, action) -> None:
+            self.append_log(
+                f"[设备已响应] {name}：{action.summary()}（{done}/{total}）"
+            )
+
+        self.append_log(f"[执行动作] 场景「{name}」开始执行 {len(actions)} 条动作")
+        try:
+            count = execute_actions(
+                actions, device, on_dispatch=on_dispatch, on_step=on_step
+            )
+        except Exception as exc:
+            self.append_log(f"[执行失败] {exc}")
+            if notify:
+                QMessageBox.warning(self.window, "执行失败", str(exc))
+            return False
+        self.append_log(f"[执行完成] 共执行 {count} 条动作\n{'-' * 28}")
+        return True
+
+    def _execute_scene(self, index: int) -> None:
+        """卡片按钮：解析并执行指定场景的动作，下发到已连接设备。"""
+        scenes = self._plain_scenes()
+        if 0 <= index < len(scenes):
+            self.run_scene_actions(scenes[index])
 
     def _add_scene(self) -> None:
         data = self._scene_editor()

@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import screenshot_names, settings
-from ..ai import AISettingsTab
+from ..ai import AILogSettingsTab, AISettingsTab
 from ..config import ROOT, SCREENSHOT_DIR
 from ..connection import (
     CAP_LABELS,
@@ -87,6 +87,7 @@ class ToolbarSettingsDialog(QDialog):
         tabs.addTab(conn_tab, "设备连接")
         tabs.addTab(general_tab, "通用设置")
         tabs.addTab(AISettingsTab(self), "AI 设置")
+        tabs.addTab(AILogSettingsTab(self), "日志显示")
 
         conn_cfg = normalize_connection(connection)
         conn_group = QGroupBox("连接设置")

@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import config
+from .actions import parse_actions
 from .recognition import RecognitionWorker, recognize_screen
 
 
@@ -141,6 +142,41 @@ class SceneEditorMixin:
         json_layout.addWidget(json_edit)
         desc_tabs.addTab(json_page, "JSON")
         form.addRow("描述", desc_tabs)
+
+        action_edit = QPlainTextEdit()
+        action_edit.setPlaceholderText(
+            "每行一条 airtest 动作，# 后为注释。例如：\n"
+            "touch((540, 1200))              # 点击坐标\n"
+            "swipe((540, 1500), (540, 600))  # 滑动\n"
+            "keyevent(\"HOME\")               # 按键（如 BACK / HOME）"
+        )
+        action_edit.setStyleSheet(
+            "QPlainTextEdit { background: #242424; color: #dddddd; border: 1px solid #3a3a3a; "
+            "border-radius: 4px; font-family: Consolas, monospace; }"
+        )
+        action_edit.setFixedHeight(96)
+        action_edit.setPlainText(scene.get("action", "") if scene else "")
+        form.addRow("动作", action_edit)
+        action_status = QLabel()
+        action_status.setStyleSheet("font-size: 11px;")
+
+        def validate_actions() -> tuple[bool, list[str]]:
+            actions, errors = parse_actions(action_edit.toPlainText())
+            if errors:
+                action_status.setText(f"✗ {errors[0]}")
+                action_status.setStyleSheet("color: #f44336; font-size: 11px;")
+            elif actions:
+                summary = "；".join(a.summary() for a in actions)
+                action_status.setText(f"✓ {len(actions)} 条动作：{summary}")
+                action_status.setStyleSheet("color: #4caf50; font-size: 11px;")
+            else:
+                action_status.setText("未配置动作（可执行时跳过）")
+                action_status.setStyleSheet("color: #888888; font-size: 11px;")
+            return not errors, errors
+
+        action_edit.textChanged.connect(lambda: validate_actions())
+        validate_actions()
+        form.addRow("", action_status)
 
         def remove_desc_row(button: QToolButton) -> None:
             for row in range(desc_table.rowCount()):
@@ -400,11 +436,17 @@ class SceneEditorMixin:
         def on_accept() -> None:
             if desc_tabs.currentWidget() is json_page:
                 sync_from_json()
+            else:
+                sync_table_to_json()
             total = weight_total()
             if abs(total - 100.0) >= 0.01:
                 QMessageBox.warning(
                     dialog, "提示", f"权重合计必须等于 100%（当前 {total:g}%）"
                 )
+                return
+            valid, action_errors = validate_actions()
+            if not valid:
+                QMessageBox.warning(dialog, "动作格式错误", "\n".join(action_errors))
                 return
             dialog.accept()
 
@@ -415,7 +457,10 @@ class SceneEditorMixin:
 
         def set_busy(busy: bool) -> None:
             recognize_button.setText("识别中…" if busy else "识别界面")
-            for control in (recognize_button, pick_button, snap_button, clear_button, add_row_button):
+            for control in (
+                recognize_button, pick_button, snap_button, clear_button,
+                add_row_button, action_edit,
+            ):
                 control.setEnabled(not busy)
 
         def collect_desc() -> str:
@@ -479,7 +524,7 @@ class SceneEditorMixin:
 
         recognize_button.clicked.connect(recognize_scene)
         dialog.finished.connect(on_dialog_finished)
-        dialog.resize(760, 400)
+        dialog.resize(760, 520)
         accepted = dialog.exec() == QDialog.Accepted
         if not accepted:
             return None
@@ -496,4 +541,9 @@ class SceneEditorMixin:
                 feature_data = []
         except (ValueError, TypeError):
             feature_data = []
-        return {"name": name, "feature": feature_data, "image": image}
+        return {
+            "name": name,
+            "feature": feature_data,
+            "image": image,
+            "action": action_edit.toPlainText().strip(),
+        }

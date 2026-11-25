@@ -15,9 +15,9 @@ CONFIG_PATH = CONFIG_DIR / "ai_settings.json"
 SCENE_IMAGE_DIR = CONFIG_DIR / "scenes"
 
 DEFAULT_SCENES: list[dict] = [
-    {"name": "reward_dialog", "feature": [{"text": "立即领取", "weight": 1}, {"text": "恭喜获得", "weight": 1}]},
-    {"name": "taobao_app", "feature": [{"text": "首页", "weight": 1}, {"text": "购物车", "weight": 1}, {"text": "我的淘宝", "weight": 1}]},
-    {"name": "main_screen", "feature": [{"text": "主界面", "weight": 1}]},
+    {"name": "reward_dialog", "feature": [{"text": "立即领取", "weight": 1}, {"text": "恭喜获得", "weight": 1}], "action": "touch((540, 1200))"},
+    {"name": "taobao_app", "feature": [{"text": "首页", "weight": 1}, {"text": "购物车", "weight": 1}, {"text": "我的淘宝", "weight": 1}], "action": ""},
+    {"name": "main_screen", "feature": [{"text": "主界面", "weight": 1}], "action": ""},
 ]
 
 
@@ -122,8 +122,21 @@ DEFAULT_MATCH_PROMPT = (
     "名称必须原样从候选里选；都不符合输出 none。只输出场景名，不要解释。"
 )
 
+LOG_FIELDS: list[tuple[str, str, str]] = [
+    ("analysis", "识别结果", "界面元素 / 场景编辑识别的模型返回内容"),
+    ("prompt", "提示词", "界面识别 / 场景匹配发送给模型的提示词"),
+    ("match", "场景匹配", "匹配到的场景名与耗时"),
+    ("action", "动作执行", "设备下发 / 响应 / 执行完成等信息"),
+    ("system", "状态提示", "流程进度、失败原因、自动循环等提示"),
+]
+LOG_FIELD_KEYS = [key for key, _label, _hint in LOG_FIELDS]
+
 DEFAULTS: dict[str, Any] = {
     "panel_visible": False,
+    "log_fields": {"analysis": False, "prompt": False, "match": True, "action": True, "system": True},
+    "match_execute_action": False,
+    "auto_loop": False,
+    "auto_loop_interval_ms": 2000,
     "api_url": "http://192.168.162.1:1234/v1/chat/completions",
     "api_token": "",
     "model": "ui-box-scorer-qwen2.5-vl-7b",
@@ -155,6 +168,23 @@ def load() -> dict[str, Any]:
     visible = raw.get("panel_visible")
     if isinstance(visible, bool):
         config["panel_visible"] = visible
+    raw_fields = raw.get("log_fields")
+    if isinstance(raw_fields, dict):
+        for key in LOG_FIELD_KEYS:
+            if isinstance(raw_fields.get(key), bool):
+                config["log_fields"][key] = raw_fields[key]
+    match_execute = raw.get("match_execute_action")
+    if isinstance(match_execute, bool):
+        config["match_execute_action"] = match_execute
+    auto_loop = raw.get("auto_loop")
+    if isinstance(auto_loop, bool):
+        config["auto_loop"] = auto_loop
+    interval = raw.get("auto_loop_interval_ms")
+    if (
+        isinstance(interval, int) and not isinstance(interval, bool)
+        and 200 <= interval <= 60000
+    ):
+        config["auto_loop_interval_ms"] = interval
     url = raw.get("api_url")
     if isinstance(url, str) and url.strip():
         config["api_url"] = url.strip()
@@ -233,6 +263,7 @@ def load_scenes() -> list[dict]:
         name = item.get("name")
         feature = item.get("feature", item.get("desc", []))
         image = item.get("image", "")
+        action = item.get("action", "")
         if isinstance(feature, str):
             feature = parse_desc(feature)
         if not isinstance(feature, list):
@@ -242,6 +273,7 @@ def load_scenes() -> list[dict]:
                 "name": name,
                 "feature": feature,
                 "image": image if isinstance(image, str) else "",
+                "action": action if isinstance(action, str) else "",
                 "_file": path.name,
             })
     return scenes
@@ -258,10 +290,12 @@ def save_scenes(scenes: list[dict]) -> None:
         feature = scene.get("feature", [])
         if isinstance(feature, str):
             feature = parse_desc(feature)
+        action = scene.get("action", "")
         payload = {
             "name": scene.get("name", ""),
             "feature": feature if isinstance(feature, list) else [],
             "image": scene.get("image", ""),
+            "action": action if isinstance(action, str) else "",
         }
         (SCENE_IMAGE_DIR / filename).write_text(
             json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
