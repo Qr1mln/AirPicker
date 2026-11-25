@@ -33,6 +33,8 @@ SWIPE_DURATION = 0.3  # 模拟滑动持续时间（秒）
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = ROOT / "config"      # 配置文件目录（settings.json / ai_settings.json）
+ASSETS_DIR = ROOT / "assets"      # 应用资源目录（图标等）
+APP_ICON = ASSETS_DIR / "app.ico"
 PICS_DIR = ROOT / "pics"
 SCRIPTS_DIR = ROOT / "scripts"
 SCREENSHOT_DIR = ROOT / "screenshots"

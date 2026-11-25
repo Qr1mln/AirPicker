@@ -1,32 +1,24 @@
 # -*- coding: utf-8 -*-
-"""AI 工具：识别 / 场景配置 / 场景匹配 / 状态日志四个可停靠面板。"""
+"""AI 工具：识别 / 场景配置 / 状态日志可停靠面板的构建与对外接口。"""
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, QSize, Qt, Signal
+from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QDialog,
-    QDialogButtonBox,
     QDockWidget,
-    QFormLayout,
-    QFrame,
     QHBoxLayout,
-    QLabel,
-    QLineEdit,
     QListWidget,
-    QListWidgetItem,
     QMenu,
-    QMessageBox,
-    QPlainTextEdit,
     QPushButton,
     QTextEdit,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from . import config
+from .scene_cards import SceneCardsMixin
+from .scene_editor import SceneEditorMixin
 
 _DOCK_STYLE = (
     "QDockWidget { background: #1e1e1e; color: #dddddd; border: 1px solid #3a3a3a; }"
@@ -56,8 +48,8 @@ _PANE_STYLE = (
 )
 
 
-class AIPanel(QObject):
-    """构建四个独立停靠面板，并对外暴露按钮、场景列表和日志接口。"""
+class AIPanel(SceneCardsMixin, SceneEditorMixin, QObject):
+    """构建可停靠面板，并对外暴露按钮、场景列表和日志接口。"""
 
     collapse_requested = Signal()
     match_requested = Signal()
@@ -65,6 +57,7 @@ class AIPanel(QObject):
     def __init__(self, window: QWidget):
         super().__init__(window)
         self.window = window
+        self.recognition_frame = None  # 最近一次界面识别使用的画面帧，由 AIAddon 写入
         self._docks: list[QDockWidget] = []
         self._create_docks()
         extra = (
@@ -176,9 +169,9 @@ class AIPanel(QObject):
     def scenes(self) -> list[dict[str, str]]:
         """供场景匹配使用的场景配置（名称和描述都非空）。"""
         return [
-            {"name": s.get("name", ""), "desc": s.get("desc", "")}
+            {"name": s.get("name", ""), "feature": s.get("feature", "")}
             for s in config.load()["scenes"]
-            if s.get("name") and s.get("desc")
+            if s.get("name") and s.get("feature")
         ]
 
     def append_log(self, text: str) -> None:
@@ -190,118 +183,6 @@ class AIPanel(QObject):
         cursor = self.log_view.textCursor()
         cursor.movePosition(QTextCursor.End)
         self.log_view.setTextCursor(cursor)
-
-    # -------- 场景卡片列表 --------
-    def _refresh_scene_list(self) -> None:
-        self.scene_list.clear()
-        for index, scene in enumerate(config.load()["scenes"]):
-            item = QListWidgetItem()
-            item.setSizeHint(QSize(10, 72))
-            self.scene_list.addItem(item)
-            self.scene_list.setItemWidget(item, self._make_scene_card(index, scene))
-
-    def _make_scene_card(self, index: int, scene: dict[str, str]) -> QWidget:
-        card = QFrame()
-        card.setStyleSheet(
-            "QFrame { background: #292929; border: 1px solid #3a3a3a; border-radius: 6px; }"
-        )
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(8, 6, 8, 6)
-        card_layout.setSpacing(4)
-
-        top = QHBoxLayout()
-        name = QLabel(scene.get("name") or "(未命名)")
-        name.setStyleSheet("color: #ffffff; font-weight: bold;")
-        top.addWidget(name, 1)
-        for text, tip, callback in (
-            ("↑", "上移", lambda: self._move_scene(index, -1)),
-            ("↓", "下移", lambda: self._move_scene(index, 1)),
-            ("×", "删除", lambda: self._delete_scene(index)),
-        ):
-            button = QToolButton()
-            button.setObjectName("sceneCardButton")
-            button.setText(text)
-            button.setToolTip(tip)
-            button.clicked.connect(lambda _checked=False, cb=callback: cb())
-            top.addWidget(button)
-        card_layout.addLayout(top)
-
-        summary = " ".join(scene.get("desc", "").split())[:100] or "（无描述）"
-        desc = QLabel(summary)
-        desc.setStyleSheet("color: #aaaaaa; font-size: 11px;")
-        desc.setWordWrap(True)
-        card_layout.addWidget(desc)
-        return card
-
-    def _scene_editor(self, scene: dict[str, str] | None = None) -> dict[str, str] | None:
-        dialog = QDialog(self.window)
-        dialog.setWindowTitle("编辑场景" if scene else "新增场景")
-        dialog.setStyleSheet(
-            "QDialog, QLineEdit, QPlainTextEdit { background: #2b2b2b; color: #dddddd; }"
-            "QLabel { color: #dddddd; }"
-            "QPushButton { background: #3a3a3a; color: #dddddd; padding: 4px 10px; }"
-        )
-        form = QFormLayout(dialog)
-        name_edit = QLineEdit(scene.get("name", "") if scene else "")
-        desc_edit = QPlainTextEdit()
-        desc_edit.setPlainText(scene.get("desc", "") if scene else "")
-        desc_edit.setPlaceholderText(
-            "每行一个关键文字片段；可在行尾标注权重参与匹配打分：\n"
-            "已发放*8\n直播中\n进入直播间（未标注默认权重 1）"
-        )
-        form.addRow("场景名", name_edit)
-        form.addRow("描述", desc_edit)
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        form.addRow(buttons)
-        dialog.resize(560, 360)
-        if dialog.exec() != QDialog.Accepted:
-            return None
-        name = name_edit.text().strip()
-        if not name:
-            QMessageBox.warning(dialog, "提示", "场景名不能为空")
-            return None
-        return {"name": name, "desc": desc_edit.toPlainText().strip()}
-
-    def _add_scene(self) -> None:
-        data = self._scene_editor()
-        if data is not None:
-            scenes = config.load()["scenes"]
-            scenes.append(data)
-            config.save(scenes=scenes)
-            self._refresh_scene_list()
-
-    def _edit_scene_item(self, item) -> None:
-        self._edit_scene_at(self.scene_list.row(item))
-
-    def _edit_selected_scene(self) -> None:
-        self._edit_scene_at(self.scene_list.currentRow())
-
-    def _edit_scene_at(self, index: int) -> None:
-        scenes = config.load()["scenes"]
-        if not 0 <= index < len(scenes):
-            return
-        data = self._scene_editor(scenes[index])
-        if data is not None:
-            scenes[index] = data
-            config.save(scenes=scenes)
-            self._refresh_scene_list()
-
-    def _delete_scene(self, index: int) -> None:
-        scenes = config.load()["scenes"]
-        if 0 <= index < len(scenes):
-            scenes.pop(index)
-            config.save(scenes=scenes)
-            self._refresh_scene_list()
-
-    def _move_scene(self, index: int, delta: int) -> None:
-        scenes = config.load()["scenes"]
-        target = index + delta
-        if 0 <= index < len(scenes) and 0 <= target < len(scenes):
-            scenes[index], scenes[target] = scenes[target], scenes[index]
-            config.save(scenes=scenes)
-            self._refresh_scene_list()
 
     # -------- 日志右键菜单 --------
     def _show_log_menu(self, pos) -> None:

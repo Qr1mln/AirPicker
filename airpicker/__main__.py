@@ -12,14 +12,17 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from PySide6.QtCore import QTimer
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
+from airpicker.config import APP_ICON
 from airpicker.main_window import MainWindow
 
 
 def main() -> None:
     print("[信息] AirPicker 已启动，暂不连接设备；可在设置中连接或开启自动连接")
     app = QApplication([])
+    app.setWindowIcon(QIcon(str(APP_ICON)))
     window = MainWindow()
     window.show()
     window.toolbar.move(20, 60)

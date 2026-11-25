@@ -6,12 +6,13 @@ import time
 
 import numpy as np
 from PySide6.QtCore import QPoint, QTimer, Signal
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QMainWindow
 
 from . import image_utils, settings
 from .ai import AIAddon
 from .capture_worker import CaptureWorker
-from .config import MAX_H, MAX_W, MODE_GESTURE
+from .config import APP_ICON, MAX_H, MAX_W, MODE_GESTURE
 from .interactions import (
     CoordPickMixin,
     DeviceConnectionMixin,
@@ -69,6 +70,7 @@ class MainWindow(
         self._lock_ratio = settings.get_lock_ratio(cur_settings)
 
         self.setWindowTitle("AirPicker · 未连接设备" if device is None else "AirPicker")
+        self.setWindowIcon(QIcon(str(APP_ICON)))
         self.screen = ScreenWidget(self)
         self.setCentralWidget(self.screen)
         if device is None:

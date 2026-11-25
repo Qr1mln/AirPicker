@@ -55,6 +55,12 @@ class AISettingsTab(QWidget):
         self.timeout_spin.setSuffix(" 秒")
         form.addRow("超时", self.timeout_spin)
 
+        self.max_tokens_spin = QSpinBox()
+        self.max_tokens_spin.setRange(1, 32768)
+        self.max_tokens_spin.setValue(int(cfg["max_tokens"]))
+        self.max_tokens_spin.setToolTip("单次请求允许模型返回的最大 token 数，作为 max_tokens 发送给大模型")
+        form.addRow("最大返回 Token", self.max_tokens_spin)
+
         self.temperature_spin = QDoubleSpinBox()
         self.temperature_spin.setRange(0.0, 2.0)
         self.temperature_spin.setDecimals(2)
@@ -101,6 +107,7 @@ class AISettingsTab(QWidget):
         self.token_edit.textChanged.connect(self._save)
         self.model_edit.textChanged.connect(self._save)
         self.timeout_spin.valueChanged.connect(self._save)
+        self.max_tokens_spin.valueChanged.connect(self._save)
         self.temperature_spin.valueChanged.connect(self._save)
         self.retry_temperature_spin.valueChanged.connect(self._save)
         self.analyze_prompt_edit.textChanged.connect(self._save)
@@ -112,6 +119,7 @@ class AISettingsTab(QWidget):
             api_token=self.token_edit.text().strip(),
             model=self.model_edit.text().strip(),
             timeout=self.timeout_spin.value(),
+            max_tokens=self.max_tokens_spin.value(),
             temperature=self.temperature_spin.value(),
             retry_temperature=self.retry_temperature_spin.value(),
             analyze_prompt=self.analyze_prompt_edit.toPlainText().strip() or DEFAULT_ANALYZE_PROMPT,

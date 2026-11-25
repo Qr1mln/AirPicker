@@ -8,8 +8,9 @@ from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, QThread, QTimer,
 from PySide6.QtWidgets import QDockWidget
 
 from . import config
-from .api import MatchWorker, RecognitionWorker
+from .matching import MatchWorker
 from .panel import AIPanel
+from .recognition import recognize_screen
 
 
 class AIAddon(QObject):
@@ -143,25 +144,26 @@ class AIAddon(QObject):
     def start_recognition(self) -> None:
         if self._worker is not None and self._worker.isRunning():
             return
-        frame = self.window._screenshot_frame()
-        if frame is None:
+        started = recognize_screen(
+            self.window,
+            parent=self,
+            on_frame=self._keep_frame,
+            on_prompt=lambda text: self._log_prompt("界面识别", text),
+            on_ready=self._on_analyzed,
+            on_failed=self._on_failed,
+            on_finished=self._on_finished,
+        )
+        if started is None:
             self.panel.append_log("[识别失败] 暂无画面，无法识别界面")
             return
-        cfg = config.load()
-        worker = RecognitionWorker(
-            frame.copy(),
-            cfg["api_url"], cfg["model"], cfg["timeout"], cfg["api_token"],
-            cfg["temperature"], cfg["retry_temperature"], self,
-        )
-        worker.prompt_ready.connect(lambda text: self._log_prompt("界面识别", text))
-        worker.result_ready.connect(self._on_analyzed)
-        worker.failed.connect(self._on_failed)
-        worker.finished.connect(self._on_finished)
-        self._worker = worker
+        self._worker = started
         self.panel.recognize_button.setEnabled(False)
         self.panel.recognize_button.setText("识别中…")
         self.panel.append_log("已截取当前帧，正在识别界面元素…")
-        worker.start()
+
+    def _keep_frame(self, snapshot) -> None:
+        """保存识别帧，供场景编辑对话框的「插入识别图片」使用。"""
+        self.panel.recognition_frame = snapshot
 
     def _on_analyzed(self, analysis: str, elapsed: float) -> None:
         self._last_analysis = analysis.strip()
@@ -180,34 +182,31 @@ class AIAddon(QObject):
         if not scenes:
             self.panel.append_log("[提示] 场景配置为空，请填写场景名称和描述")
             return
-        frame = self.window._screenshot_frame()
-        if frame is None:
+        worker = recognize_screen(
+            self.window,
+            parent=self,
+            on_frame=self._keep_frame,
+            on_prompt=lambda text: self._log_prompt("界面识别", text),
+            on_ready=self._on_analyzed,
+            on_failed=self._on_failed,
+            on_finished=self._on_finished,
+        )
+        if worker is None:
             self.panel.append_log("[识别失败] 暂无画面，无法识别界面")
             return
-        cfg = config.load()
         self._pending_scenes = scenes
-        worker = RecognitionWorker(
-            frame.copy(),
-            cfg["api_url"], cfg["model"], cfg["timeout"], cfg["api_token"],
-            cfg["temperature"], cfg["retry_temperature"], self,
-        )
-        worker.prompt_ready.connect(lambda text: self._log_prompt("界面识别", text))
-        worker.result_ready.connect(self._on_analyzed)
-        worker.failed.connect(self._on_failed)
-        worker.finished.connect(self._on_finished)
         self._worker = worker
         self.panel.recognize_button.setEnabled(False)
         self.panel.match_button.setEnabled(False)
         self.panel.match_button.setText("识别中…")
         self.panel.append_log("已截取当前帧，正在重新识别界面后匹配场景…")
-        worker.start()
 
     def _run_match(self, scenes: list[dict[str, str]]) -> None:
         cfg = config.load()
         worker = MatchWorker(
             self._last_analysis, scenes,
             cfg["api_url"], cfg["model"], cfg["timeout"], cfg["api_token"],
-            cfg["temperature"], self,
+            cfg["max_tokens"], cfg["temperature"], self,
         )
         worker.prompt_ready.connect(lambda text: self._log_prompt("场景匹配", text))
         worker.matched.connect(self._on_matched)
